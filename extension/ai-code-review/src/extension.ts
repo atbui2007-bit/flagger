@@ -1,26 +1,24 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
+    
+    // 1. Log to confirm the extension loaded
+    console.log('AI Code Review extension is active');
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "ai-code-review" is now active!');
+    // 2. Register a listener for text document changes
+    //    This is where suggestion detection will live
+    const changeListener = vscode.workspace.onDidChangeTextDocument(event => {
+        // for now just log that a change happened
+        // we'll fill in the real logic in the next task
+        console.log('Document changed:', event.document.fileName);
+    });
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('ai-code-review.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Hello World from ai-code-review!');
-	});
-
-	context.subscriptions.push(disposable);
+    // 3. Register the listener so VS Code cleans it up
+    //    when the extension is deactivated
+    context.subscriptions.push(changeListener);
 }
 
-// This method is called when your extension is deactivated
-export function deactivate() {}
+export function deactivate() {
+    // VS Code calls this when the extension is disabled or VS Code closes
+    // cleanup logic will go here later
+}
