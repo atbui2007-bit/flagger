@@ -17,3 +17,11 @@ CREATE TABLE risk_scores (
   findings JSONB,
   scored_at TIMESTAMP DEFAULT NOW()
 );
+CREATE TABLE approvals (
+  id SERIAL PRIMARY KEY,
+  pr_id INT REFERENCES pull_requests(id),
+  approved_by TEXT NOT NULL,
+  approved_at TIMESTAMP DEFAULT NOW(),
+  override_reason TEXT,
+  risk_score_at_approval FLOAT
+);
