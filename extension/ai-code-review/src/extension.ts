@@ -8,9 +8,12 @@ export function activate(context: vscode.ExtensionContext) {
     // 2. Register a listener for text document changes
     //    This is where suggestion detection will live
     const changeListener = vscode.workspace.onDidChangeTextDocument(event => {
-        // for now just log that a change happened
-        // we'll fill in the real logic in the next task
-        console.log('Document changed:', event.document.fileName);
+        for(const change of event.contentChanges){
+            if(change.text.includes('\n')){
+                console.log("AI Suggestion in: ", event.document.fileName);
+                console.log("Inserted Text: ", change.text);
+            }
+        }
     });
 
     // 3. Register the listener so VS Code cleans it up
