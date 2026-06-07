@@ -1,4 +1,15 @@
 import * as vscode from 'vscode';
+import * as fs from "fs";
+
+function readAIMap(workspaceRoot: string){
+    const path = workspaceRoot + "/.aimap.json";
+    if(fs.existsSync(path)){
+        const text = fs.readFileSync(path, "utf8");
+        return JSON.parse(text);
+    } else {
+        return {};
+    }
+}
 
 export function activate(context: vscode.ExtensionContext) {
     
