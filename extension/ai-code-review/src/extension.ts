@@ -11,6 +11,21 @@ function readAIMap(workspaceRoot: string){
     }
 }
 
+function writeChunk(workspaceRoot: string, filePath: string, startLine: number, endLine: number, timestamp: string){
+    var AIMap = readAIMap(workspaceRoot);
+    if(!(filePath != in AIMap)){
+        AIMap[filePath] = [];
+    }
+    aimap[filePath].push({ 
+        lines: [startLine, endLine], 
+        timestamp: timestamp, 
+        tool: "copilot" });
+    
+    var serialized = JSON.stringfy(aimap, null, 2)
+    
+    fs.writeFileSync(workspaceRoot + "/.aimap.json", serialized);
+}
+
 export function activate(context: vscode.ExtensionContext) {
     
     // 1. Log to confirm the extension loaded
