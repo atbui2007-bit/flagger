@@ -12,16 +12,16 @@ function readAIMap(workspaceRoot: string){
 }
 
 function writeChunk(workspaceRoot: string, filePath: string, startLine: number, endLine: number, timestamp: string){
-    var AIMap = readAIMap(workspaceRoot);
-    if(!(filePath != in AIMap)){
+    const AIMap: any = readAIMap(workspaceRoot);
+    if(!(filePath in AIMap)){
         AIMap[filePath] = [];
     }
-    aimap[filePath].push({ 
+    AIMap[filePath].push({ 
         lines: [startLine, endLine], 
         timestamp: timestamp, 
         tool: "copilot" });
     
-    var serialized = JSON.stringfy(aimap, null, 2)
+    var serialized = JSON.stringify(AIMap, null, 2);
     
     fs.writeFileSync(workspaceRoot + "/.aimap.json", serialized);
 }
