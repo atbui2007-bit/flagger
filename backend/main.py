@@ -19,10 +19,6 @@ def handlePush(payload):
     body = payload["repository"]["full_name"], payload["head_commit"]["id"]
     print(body)
 
-def handlePullRequest(payload):
-    body = payload["number"], payload["action"], payload["pull_request"]["user"]["login"]
-    print(body)
-
 def handleWorkflowRun(payload):
     body = payload["workflow_run"]["name"], payload["workflow_run"]["status"], payload["workflow_run"]["conclusion"], payload["repository"]["full_name"]
     print(body)
