@@ -1,5 +1,8 @@
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 from dotenv import load_dotenv
+from database import get_db
+from handlers.PullRequests import handle_pull_request
 import json, hmac, hashlib, os
 
 load_dotenv()
@@ -29,7 +32,7 @@ def handlePullRequestReview(payload):
     print(body)
 
 @app.post("/webhook")
-async def webhook(request: Request):
+async def webhook(request: Request, session: AsyncSession = Depends(get_db)):
     header = request.headers.get("X-Hub-Signature-256")
     rawBody = await request.body()
     mySignature = hmac.new(key = secret.encode("utf-8"), msg = rawBody, digestmod = hashlib.sha256).hexdigest()
@@ -43,7 +46,7 @@ async def webhook(request: Request):
     if githubEventHeader == "push":
         handlePush(payload)
     elif githubEventHeader == "pull_request":
-        handlePullRequest(payload)
+        await handle_pull_request(payload, session)
     elif githubEventHeader == "workflow_run":
         handleWorkflowRun(payload)
     elif githubEventHeader == "pull_request_review":
