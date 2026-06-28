@@ -3,6 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dotenv import load_dotenv
 from database import get_db
 from handlers.PullRequests import handle_pull_request
+from handlers.WorkflowRun import handle_workflow_run
+from handlers.PullRequestReview import handle_pull_request_review
 import json, hmac, hashlib, os
 
 load_dotenv()
@@ -44,9 +46,9 @@ async def webhook(request: Request, session: AsyncSession = Depends(get_db)):
     elif githubEventHeader == "pull_request":
         await handle_pull_request(payload, session)
     elif githubEventHeader == "workflow_run":
-        handleWorkflowRun(payload)
+        await handle_workflow_run(payload, session)
     elif githubEventHeader == "pull_request_review":
-        handlePullRequestReview(payload)
+        await handle_pull_request_review(payload, session)
     else:
         print("unhandled event: " + githubEventHeader)
 
