@@ -5,6 +5,7 @@ from database import get_db
 from handlers.PullRequests import handle_pull_request
 from handlers.WorkflowRun import handle_workflow_run
 from handlers.PullRequestReview import handle_pull_request_review
+from handlers.push import handle_push
 import json, hmac, hashlib, os
 
 load_dotenv()
@@ -16,18 +17,6 @@ app = FastAPI()
 
 async def root():
     return {"status": "ok"}
-
-def handlePush(payload):
-    body = payload["repository"]["full_name"], payload["head_commit"]["id"]
-    print(body)
-
-def handleWorkflowRun(payload):
-    body = payload["workflow_run"]["name"], payload["workflow_run"]["status"], payload["workflow_run"]["conclusion"], payload["repository"]["full_name"]
-    print(body)
-
-def handlePullRequestReview(payload):
-    body = payload["review"]["state"], payload["review"]["user"]["login"], payload["pull_request"]["number"], payload["repository"]["full_name"]
-    print(body)
 
 @app.post("/webhook")
 async def webhook(request: Request, session: AsyncSession = Depends(get_db)):
@@ -42,7 +31,7 @@ async def webhook(request: Request, session: AsyncSession = Depends(get_db)):
 
     githubEventHeader = request.headers.get("X-GitHub-Event")
     if githubEventHeader == "push":
-        handlePush(payload)
+        await handle_push(payload, session)
     elif githubEventHeader == "pull_request":
         await handle_pull_request(payload, session)
     elif githubEventHeader == "workflow_run":

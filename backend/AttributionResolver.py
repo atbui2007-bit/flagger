@@ -20,7 +20,7 @@ def heuristic_resolver(commit_payload):
     known_authors = {"OpenAI Codex": "Codex",
                      "Aider": "Aider"}
     
-    if commit_payload["author"]["login"] in known_bots:
+    if commit_payload["author"].get("login") in known_bots:
         return {"agent_type": known_bots[commit_payload["author"]["login"]],
                 "attribution_source": "heuristic",
                 "attribution_confidence": "certain",
