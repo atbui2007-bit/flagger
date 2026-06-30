@@ -7,6 +7,7 @@ from handlers.WorkflowRun import handle_workflow_run
 from handlers.PullRequestReview import handle_pull_request_review
 from handlers.push import handle_push
 from routers.activity import router as activity_router
+from routers.timeline import router as timeline_router
 import json, hmac, hashlib, os
 
 load_dotenv()
@@ -15,6 +16,7 @@ secret = os.getenv("WEBHOOK_SECRET")
 app = FastAPI()
 
 app.include_router(activity_router, prefix = "/activity")
+app.include_router(timeline_router, prefix = "/repos")
 
 @app.get("/health")
 
