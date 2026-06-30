@@ -12,6 +12,7 @@ CREATE TABLE repos (
 CREATE TABLE pull_requests (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     repo_id uuid NOT NULL REFERENCES repos(id),
+    head_branch TEXT,
     github_pr_number INT NOT NULL,
     title TEXT NOT NULL,
     url TEXT NOT NULL,

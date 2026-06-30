@@ -38,6 +38,16 @@ async def handle_push(payload, session: AsyncSession):
     merged_to_default = branch == default_branch
     risk_direct_to_main = branch == default_branch
 
+    pr_lookup = text("""
+    SELECT id FROM pull_requests
+    WHERE repo_id = :repo_id
+    AND head_branch = :branch
+    AND state = 'open'
+    """)
+    pr_result = await session.execute(pr_lookup, {"repo_id": repo_id, "branch": branch})
+    pr_row = pr_result.fetchone()
+    pull_request_id = pr_row.id if pr_row else None
+
     commit_insert = text("""
         INSERT INTO commits (
             id, repo_id, pull_request_id, sha, short_sha, message, url, branch,
@@ -101,7 +111,7 @@ async def handle_push(payload, session: AsyncSession):
 
         result = await session.execute(commit_insert, {
             "repo_id": repo_id,
-            "pull_request_id": None,
+            "pull_request_id": pull_request_id,
             "sha": sha,
             "short_sha": sha[:7],
             "message": commit["message"],

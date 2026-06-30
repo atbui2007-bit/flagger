@@ -17,17 +17,18 @@ async def handle_pull_request(payload, session: AsyncSession):
         INSERT INTO pull_requests (
             id, repo_id, github_pr_number, title, url,
             author_login, state, merged_at, created_at,
-            updated_at, closed_at
+            updated_at, closed_at, head_branch
         )
         VALUES (
-            gen_random_uuid(), :repo_id, :github_pr_number, :title, :url, :author_login, :state, :merged_at, :created_at, :updated_at, :closed_at
+            gen_random_uuid(), :repo_id, :github_pr_number, :title, :url, :author_login, :state, :merged_at, :created_at, :updated_at, :closed_at, :head_branch
         )
         ON CONFLICT (github_pr_number, repo_id)
         DO UPDATE SET
             state = EXCLUDED.state,
             updated_at = EXCLUDED.updated_at,
             merged_at = EXCLUDED.merged_at,
-            closed_at = EXCLUDED.closed_at
+            closed_at = EXCLUDED.closed_at,
+            head_branch = EXCLUDED.head_branch
     """)
     
     await session.execute(upsert_query, {
@@ -40,7 +41,8 @@ async def handle_pull_request(payload, session: AsyncSession):
         "merged_at": parse_dt(pr.get("merged_at")),
         "created_at": parse_dt(pr["created_at"]),
         "updated_at": parse_dt(pr["updated_at"]),
-        "closed_at": parse_dt(pr.get("closed_at"))
+        "closed_at": parse_dt(pr.get("closed_at")),
+        "head_branch": pr["head"]["ref"]
     })
     
     await session.commit()
