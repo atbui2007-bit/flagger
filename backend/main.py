@@ -8,6 +8,7 @@ from handlers.PullRequestReview import handle_pull_request_review
 from handlers.push import handle_push
 from routers.activity import router as activity_router
 from routers.timeline import router as timeline_router
+from routers.prs import router as prs_router
 import json, hmac, hashlib, os
 
 load_dotenv()
@@ -17,6 +18,7 @@ app = FastAPI()
 
 app.include_router(activity_router, prefix = "/activity")
 app.include_router(timeline_router, prefix = "/repos")
+app.include_router(prs_router, prefix = "/repos")
 
 @app.get("/health")
 
