@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from dotenv import load_dotenv
 from database import get_db
@@ -15,6 +16,13 @@ load_dotenv()
 secret = os.getenv("WEBHOOK_SECRET")
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(activity_router, prefix = "/activity")
 app.include_router(timeline_router, prefix = "/repos")
