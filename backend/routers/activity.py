@@ -15,6 +15,7 @@ def activity_filters(
     agent: Optional[str],
     risk: Optional[str],
     confidence: Optional[str],
+    search: Optional[str],
 ):
     clauses = []
     params = {}
@@ -34,6 +35,15 @@ def activity_filters(
     if confidence:
         clauses.append("LOWER(commits.attribution_confidence) = :confidence")
         params["confidence"] = confidence.lower()
+    if search:
+        clauses.append("""(
+            commits.message ILIKE :search OR
+            commits.sha ILIKE :search OR
+            commits.author_login ILIKE :search OR
+            commits.agent_type ILIKE :search OR
+            repos.full_name ILIKE :search
+        )""")
+        params["search"] = f"%{search.strip()}%"
 
     return clauses, params
 
@@ -46,9 +56,10 @@ async def get_activity_recent(
     agent: Optional[str],
     risk: Optional[str],
     confidence: Optional[str],
+    search: Optional[str],
     session: AsyncSession,
 ):
-    clauses, params = activity_filters(repository, contributor, agent, risk, confidence)
+    clauses, params = activity_filters(repository, contributor, agent, risk, confidence, search)
 
     if cursor:
         lookup = text("SELECT pushed_at FROM commits WHERE id = :cursor_id")
@@ -92,10 +103,11 @@ async def recent(
     agent: Optional[str] = Query(default=None),
     risk: Optional[str] = Query(default=None),
     confidence: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None, max_length=200),
     session: AsyncSession = Depends(get_db),
 ):
     return await get_activity_recent(
-        limit, cursor, repository, contributor, agent, risk, confidence, session
+        limit, cursor, repository, contributor, agent, risk, confidence, search, session
     )
 
 
@@ -106,9 +118,10 @@ async def summary(
     agent: Optional[str] = Query(default=None),
     risk: Optional[str] = Query(default=None),
     confidence: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None, max_length=200),
     session: AsyncSession = Depends(get_db),
 ):
-    clauses, params = activity_filters(repository, contributor, agent, risk, confidence)
+    clauses, params = activity_filters(repository, contributor, agent, risk, confidence, search)
     where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     query = text(f"""
         SELECT

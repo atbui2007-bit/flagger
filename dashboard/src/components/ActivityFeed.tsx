@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useDeferredValue, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 interface Commit {
@@ -51,6 +51,7 @@ type Filters = {
   agent: string
   risk: string
   confidence: string
+  search: string
 }
 
 const API_BASE = 'http://localhost:8000'
@@ -60,10 +61,12 @@ const initialFilters: Filters = {
   agent: '',
   risk: '',
   confidence: '',
+  search: '',
 }
 
-function queryString(filters: Filters, cursor?: string | null) {
-  const params = new URLSearchParams({ limit: '20' })
+function queryString(filters: Filters, cursor?: string | null, includeLimit = true) {
+  const params = new URLSearchParams()
+  if (includeLimit) params.set('limit', '20')
   Object.entries(filters).forEach(([key, value]) => value && params.set(key, value))
   if (cursor) params.set('cursor', cursor)
   return params.toString()
@@ -168,16 +171,19 @@ function EvidenceInspector({ commit, onClose }: { commit: Commit; onClose: () =>
 function ActivityFeed() {
   const [filters, setFilters] = useState(initialFilters)
   const [cursor, setCursor] = useState<string | null>(null)
+  const [cursorHistory, setCursorHistory] = useState<Array<string | null>>([])
   const [selected, setSelected] = useState<Commit | null>(null)
   const [summaryExpanded, setSummaryExpanded] = useState(false)
+  const deferredSearch = useDeferredValue(filters.search)
+  const queryFilters = { ...filters, search: deferredSearch }
 
   const activity = useQuery<ActivityResponse>({
-    queryKey: ['activity', filters, cursor],
-    queryFn: () => fetchJson(`/activity/recent?${queryString(filters, cursor)}`),
+    queryKey: ['activity', queryFilters, cursor],
+    queryFn: () => fetchJson(`/activity/recent?${queryString(queryFilters, cursor)}`),
   })
   const summary = useQuery<SummaryResponse>({
-    queryKey: ['activity-summary', filters],
-    queryFn: () => fetchJson(`/activity/summary?${queryString(filters).replace('limit=20&', '')}`),
+    queryKey: ['activity-summary', queryFilters],
+    queryFn: () => fetchJson(`/activity/summary?${queryString(queryFilters, null, false)}`),
   })
   const facets = useQuery<FacetsResponse>({
     queryKey: ['activity-facets'],
@@ -196,6 +202,7 @@ function ActivityFeed() {
   function updateFilter(key: keyof Filters, value: string) {
     setFilters((current) => ({ ...current, [key]: value }))
     setCursor(null)
+    setCursorHistory([])
   }
 
   return (
@@ -208,12 +215,12 @@ function ActivityFeed() {
           <a href="#agents">Agents</a>
           <a href="#settings">Settings</a>
         </nav>
-        <label className="global-search"><span aria-hidden="true">⌕</span><input type="search" placeholder="Search commits, repositories, authors" aria-label="Search activity" /></label>
+        <label className="global-search"><span aria-hidden="true">⌕</span><input type="search" value={filters.search} onChange={(event) => updateFilter('search', event.target.value)} placeholder="Search commits, repositories, authors" aria-label="Search activity" /></label>
       </header>
 
       <section className="summary" aria-label="Activity summary">
         <div className="summary-primary">
-          <div><strong>{summary.data?.ai_share_percent ?? '—'}%</strong><span>AI-authored</span></div>
+          <div><strong>{summary.data ? `${summary.data.ai_share_percent}%` : '—'}</strong><span>AI-authored</span></div>
           <div><strong>{summary.data?.review_needed ?? '—'}</strong><span>Needs review</span></div>
           <div><strong>{summary.data?.total_commits ?? '—'}</strong><span>Commits</span></div>
         </div>
@@ -232,7 +239,7 @@ function ActivityFeed() {
         <section className="activity-pane" aria-labelledby="activity-title">
           <div className="activity-heading">
             <div><h1 id="activity-title">Activity</h1><p>AI-authored changes across connected repositories</p></div>
-            <span className="update-status" aria-live="polite">Updates paused while reviewing</span>
+            {selected && <span className="update-status" aria-live="polite">Updates paused while reviewing</span>}
           </div>
 
           <div className="filters" aria-label="Activity filters">
@@ -271,7 +278,7 @@ function ActivityFeed() {
               </section>
             ))}
           </div>
-          {activity.data?.has_more && <footer className="pagination"><span>Showing {activity.data.data.length} changes</span><button onClick={() => setCursor(activity.data?.next_cursor || null)}>Next page</button></footer>}
+          {(activity.data?.has_more || cursorHistory.length > 0) && <footer className="pagination"><span>Showing {activity.data?.data.length ?? 0} changes</span><div>{cursorHistory.length > 0 && <button className="secondary-button" onClick={() => { const previous = cursorHistory[cursorHistory.length - 1] ?? null; setCursor(previous); setCursorHistory((history) => history.slice(0, -1)) }}>Previous</button>}{activity.data?.has_more && <button onClick={() => { setCursorHistory((history) => [...history, cursor]); setCursor(activity.data?.next_cursor || null) }}>Next page</button>}</div></footer>}
         </section>
         {selected && <EvidenceInspector commit={selected} onClose={() => setSelected(null)} />}
       </main>
