@@ -45,6 +45,21 @@ interface FacetsResponse {
   agents: string[]
 }
 
+interface AgentSummary {
+  agent_type: string
+  commits: number
+  repositories: number
+  contributors: number
+  review_needed: number
+  certain_attribution: number
+  additions: number
+  deletions: number
+  last_active: string
+  sources: string[]
+}
+
+interface AgentsResponse { data: AgentSummary[] }
+
 type Filters = {
   repository: string
   contributor: string
@@ -80,9 +95,55 @@ async function fetchJson<T>(path: string): Promise<T> {
 
 function confidenceLabel(value: string) {
   const normalized = value.toLowerCase()
-  if (normalized === 'high' || Number(value) >= 80) return 'High'
+  if (normalized === 'certain' || normalized === 'high' || Number(value) >= 80) return 'High'
   if (normalized === 'medium' || Number(value) >= 50) return 'Medium'
   return 'Low'
+}
+
+function formatAgentName(value: string) {
+  if (value.toLowerCase() === 'human') return 'Human-authored'
+  if (value.toLowerCase() === 'unknown') return 'Unknown agent'
+  return value
+}
+
+function AgentBreakdown({ onInspect }: { onInspect: (agent: string) => void }) {
+  const agents = useQuery<AgentsResponse>({
+    queryKey: ['agent-breakdown'],
+    queryFn: () => fetchJson('/activity/agents'),
+  })
+  const total = agents.data?.data.reduce((sum, agent) => sum + agent.commits, 0) ?? 0
+
+  return (
+    <main className="agents-workspace" id="agents">
+      <div className="agents-heading">
+        <div><h1>Agents</h1><p>Attribution, review coverage, and repository reach by authoring agent</p></div>
+        <span>{agents.data?.data.length ?? '—'} identities observed</span>
+      </div>
+      <div className="agents-ledger" role="table" aria-label="Agent activity breakdown">
+        <div className="agents-head" role="row">
+          <span role="columnheader">Agent</span><span role="columnheader">Commits</span><span role="columnheader">Share</span><span role="columnheader">Coverage</span><span role="columnheader">Attribution</span><span role="columnheader">Review state</span><span role="columnheader">Last active</span>
+        </div>
+        {agents.isPending && <ActivitySkeleton />}
+        {agents.isError && <div className="state-message"><strong>Agent activity could not be loaded.</strong><span>Check that the API is running, then try again.</span><button onClick={() => agents.refetch()}>Retry</button></div>}
+        {agents.data?.data.map((agent) => {
+          const share = total ? Math.round((agent.commits / total) * 100) : 0
+          const certain = agent.commits ? Math.round((agent.certain_attribution / agent.commits) * 100) : 0
+          return (
+            <button className="agent-row" role="row" key={agent.agent_type} onClick={() => onInspect(agent.agent_type)} aria-label={`View ${agent.agent_type} activity`}>
+              <span className="agent-identity" role="cell"><i aria-hidden="true">{formatAgentName(agent.agent_type).slice(0, 1).toUpperCase()}</i><span><strong>{formatAgentName(agent.agent_type)}</strong><small>{agent.sources.join(' · ').replaceAll('_', ' ')}</small></span></span>
+              <strong className="agent-count mono" role="cell">{agent.commits}</strong>
+              <span className="agent-share" role="cell"><span><i style={{ width: `${share}%` }} /></span><small>{share}%</small></span>
+              <span className="agent-detail" role="cell"><strong>{agent.repositories} repos</strong><small>{agent.contributors} contributors</small></span>
+              <span className="agent-detail" role="cell"><strong>{certain}% certain</strong><small>{agent.commits - agent.certain_attribution} suspected</small></span>
+              <span className={`review-state ${agent.review_needed ? 'state-needs-review' : 'state-approved'}`} role="cell"><i aria-hidden="true" />{agent.review_needed ? `${agent.review_needed} need review` : 'Reviewed'}</span>
+              <span className="agent-last-active" role="cell">{dateGroup(agent.last_active)}<small>+{agent.additions} −{agent.deletions}</small></span>
+            </button>
+          )
+        })}
+      </div>
+      <p className="agents-note">Attribution labels report the evidence available to Flagger. “Certain” indicates direct provenance such as git-ai notes; suspected matches remain explicitly separate.</p>
+    </main>
+  )
 }
 
 function reviewState(commit: Commit) {
@@ -169,6 +230,7 @@ function EvidenceInspector({ commit, onClose }: { commit: Commit; onClose: () =>
 }
 
 function ActivityFeed() {
+  const [view, setView] = useState<'activity' | 'agents'>('activity')
   const [filters, setFilters] = useState(initialFilters)
   const [cursor, setCursor] = useState<string | null>(null)
   const [cursorHistory, setCursorHistory] = useState<Array<string | null>>([])
@@ -205,20 +267,25 @@ function ActivityFeed() {
     setCursorHistory([])
   }
 
+  function inspectAgent(agent: string) {
+    updateFilter('agent', agent)
+    setView('activity')
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
         <a className="brand" href="/" aria-label="Flagger activity">Flagger</a>
         <nav aria-label="Primary navigation">
-          <a className="active" href="#activity">Activity</a>
+          <a className={view === 'activity' ? 'active' : ''} href="#activity" onClick={(event) => { event.preventDefault(); setView('activity') }}>Activity</a>
           <a href="#repositories">Repositories</a>
-          <a href="#agents">Agents</a>
+          <a className={view === 'agents' ? 'active' : ''} href="#agents" onClick={(event) => { event.preventDefault(); setSelected(null); setView('agents') }}>Agents</a>
           <a href="#settings">Settings</a>
         </nav>
         <label className="global-search"><span aria-hidden="true">⌕</span><input type="search" value={filters.search} onChange={(event) => updateFilter('search', event.target.value)} placeholder="Search commits, repositories, authors" aria-label="Search activity" /></label>
       </header>
 
-      <section className="summary" aria-label="Activity summary">
+      {view === 'activity' && <section className="summary" aria-label="Activity summary">
         <div className="summary-primary">
           <div><strong>{summary.data ? `${summary.data.ai_share_percent}%` : '—'}</strong><span>AI-authored</span></div>
           <div><strong>{summary.data?.review_needed ?? '—'}</strong><span>Needs review</span></div>
@@ -233,9 +300,9 @@ function ActivityFeed() {
         <button className="summary-toggle" onClick={() => setSummaryExpanded((value) => !value)} aria-expanded={summaryExpanded}>
           {summaryExpanded ? 'Fewer details' : 'More details'} <span aria-hidden="true">⌄</span>
         </button>
-      </section>
+      </section>}
 
-      <main className={`workspace${selected ? ' has-inspector' : ''}`} id="activity">
+      {view === 'agents' ? <AgentBreakdown onInspect={inspectAgent} /> : <main className={`workspace${selected ? ' has-inspector' : ''}`} id="activity">
         <section className="activity-pane" aria-labelledby="activity-title">
           <div className="activity-heading">
             <div><h1 id="activity-title">Activity</h1><p>AI-authored changes across connected repositories</p></div>
@@ -281,7 +348,7 @@ function ActivityFeed() {
           {(activity.data?.has_more || cursorHistory.length > 0) && <footer className="pagination"><span>Showing {activity.data?.data.length ?? 0} changes</span><div>{cursorHistory.length > 0 && <button className="secondary-button" onClick={() => { const previous = cursorHistory[cursorHistory.length - 1] ?? null; setCursor(previous); setCursorHistory((history) => history.slice(0, -1)) }}>Previous</button>}{activity.data?.has_more && <button onClick={() => { setCursorHistory((history) => [...history, cursor]); setCursor(activity.data?.next_cursor || null) }}>Next page</button>}</div></footer>}
         </section>
         {selected && <EvidenceInspector commit={selected} onClose={() => setSelected(null)} />}
-      </main>
+      </main>}
     </div>
   )
 }
