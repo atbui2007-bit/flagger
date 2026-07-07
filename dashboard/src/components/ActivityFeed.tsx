@@ -1,5 +1,6 @@
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { fetchJson } from '../lib/api'
 
 interface Commit {
   id: string
@@ -60,7 +61,7 @@ interface AgentSummary {
 
 interface AgentsResponse { data: AgentSummary[] }
 
-type Filters = {
+export type Filters = {
   repository: string
   contributor: string
   agent: string
@@ -69,8 +70,7 @@ type Filters = {
   search: string
 }
 
-const API_BASE = 'http://localhost:8000'
-const initialFilters: Filters = {
+export const initialFilters: Filters = {
   repository: '',
   contributor: '',
   agent: '',
@@ -85,12 +85,6 @@ function queryString(filters: Filters, cursor?: string | null, includeLimit = tr
   Object.entries(filters).forEach(([key, value]) => value && params.set(key, value))
   if (cursor) params.set('cursor', cursor)
   return params.toString()
-}
-
-async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`)
-  if (!response.ok) throw new Error(`Request failed: ${response.status}`)
-  return response.json() as Promise<T>
 }
 
 function confidenceLabel(value: string) {
@@ -130,7 +124,7 @@ function AgentBreakdown({ onInspect }: { onInspect: (agent: string) => void }) {
           const certain = agent.commits ? Math.round((agent.certain_attribution / agent.commits) * 100) : 0
           return (
             <button className="agent-row" role="row" key={agent.agent_type} onClick={() => onInspect(agent.agent_type)} aria-label={`View ${agent.agent_type} activity`}>
-              <span className="agent-identity" role="cell"><i aria-hidden="true">{formatAgentName(agent.agent_type).slice(0, 1).toUpperCase()}</i><span><strong>{formatAgentName(agent.agent_type)}</strong><small>{agent.sources.join(' · ').replaceAll('_', ' ')}</small></span></span>
+              <span className="agent-identity" role="cell"><i aria-hidden="true">{formatAgentName(agent.agent_type).slice(0, 1).toUpperCase()}</i><span><strong>{formatAgentName(agent.agent_type)}</strong><small>{agent.sources.join(' · ').replace(/_/g, ' ')}</small></span></span>
               <strong className="agent-count mono" role="cell">{agent.commits}</strong>
               <span className="agent-share" role="cell"><span><i style={{ width: `${share}%` }} /></span><small>{share}%</small></span>
               <span className="agent-detail" role="cell"><strong>{agent.repositories} repos</strong><small>{agent.contributors} contributors</small></span>
@@ -229,9 +223,12 @@ function EvidenceInspector({ commit, onClose }: { commit: Commit; onClose: () =>
   )
 }
 
-function ActivityFeed() {
-  const [view, setView] = useState<'activity' | 'agents'>('activity')
-  const [filters, setFilters] = useState(initialFilters)
+function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
+  view: 'activity' | 'agents'
+  filters: Filters
+  setFilters: React.Dispatch<React.SetStateAction<Filters>>
+  onNavigateActivity: () => void
+}) {
   const [cursor, setCursor] = useState<string | null>(null)
   const [cursorHistory, setCursorHistory] = useState<Array<string | null>>([])
   const [selected, setSelected] = useState<Commit | null>(null)
@@ -269,22 +266,11 @@ function ActivityFeed() {
 
   function inspectAgent(agent: string) {
     updateFilter('agent', agent)
-    setView('activity')
+    onNavigateActivity()
   }
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="/" aria-label="Flagger activity">Flagger</a>
-        <nav aria-label="Primary navigation">
-          <a className={view === 'activity' ? 'active' : ''} href="#activity" onClick={(event) => { event.preventDefault(); setView('activity') }}>Activity</a>
-          <a href="#repositories">Repositories</a>
-          <a className={view === 'agents' ? 'active' : ''} href="#agents" onClick={(event) => { event.preventDefault(); setSelected(null); setView('agents') }}>Agents</a>
-          <a href="#settings">Settings</a>
-        </nav>
-        <label className="global-search"><span aria-hidden="true">⌕</span><input type="search" value={filters.search} onChange={(event) => updateFilter('search', event.target.value)} placeholder="Search commits, repositories, authors" aria-label="Search activity" /></label>
-      </header>
-
+    <>
       {view === 'activity' && <section className="summary" aria-label="Activity summary">
         <div className="summary-primary">
           <div><strong>{summary.data ? `${summary.data.ai_share_percent}%` : '—'}</strong><span>AI-authored</span></div>
@@ -349,7 +335,7 @@ function ActivityFeed() {
         </section>
         {selected && <EvidenceInspector commit={selected} onClose={() => setSelected(null)} />}
       </main>}
-    </div>
+    </>
   )
 }
 

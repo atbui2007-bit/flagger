@@ -1,4 +1,5 @@
 webhook_test.py
 .agents/
 .codex/
+.claude/
 .impeccable/
