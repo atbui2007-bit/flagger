@@ -169,7 +169,7 @@ async def agents(session: AsyncSession = Depends(get_db)):
     query = text("""
         SELECT
             commits.agent_type,
-            COUNT(*) AS commits,
+            COUNT(*) AS commit_count,
             COUNT(DISTINCT commits.repo_id) AS repositories,
             COUNT(DISTINCT commits.author_login) AS contributors,
             COUNT(*) FILTER (WHERE commits.risk_no_review = TRUE) AS review_needed,
@@ -182,7 +182,10 @@ async def agents(session: AsyncSession = Depends(get_db)):
             ARRAY_AGG(DISTINCT commits.attribution_source ORDER BY commits.attribution_source) AS sources
         FROM commits
         GROUP BY commits.agent_type
-        ORDER BY commits DESC, commits.agent_type
+        ORDER BY commit_count DESC, commits.agent_type
     """)
     result = await session.execute(query)
-    return {"data": [dict(row._mapping) for row in result.fetchall()]}
+    data = [dict(row._mapping) for row in result.fetchall()]
+    for row in data:
+        row["commits"] = row.pop("commit_count")
+    return {"data": data}

@@ -2,7 +2,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 
 async def get_repo(full_name, session):
-    query = text("SELECT id FROM repos WHERE full_name = :full_name")
+    query = text("SELECT id FROM repos WHERE full_name = :full_name AND removed_at IS NULL")
     result = await session.execute(query, {"full_name": full_name})
     
     row = result.fetchone()

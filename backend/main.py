@@ -36,25 +36,35 @@ async def root():
 @app.post("/webhook")
 async def webhook(request: Request, session: AsyncSession = Depends(get_db)):
     header = request.headers.get("X-Hub-Signature-256")
+    if not header:
+        raise HTTPException(status_code = 401, detail = "missing signature")
+
     rawBody = await request.body()
     mySignature = hmac.new(key = secret.encode("utf-8"), msg = rawBody, digestmod = hashlib.sha256).hexdigest()
     githubSignature = header.replace("sha256=", "")
     if not hmac.compare_digest(mySignature, githubSignature):
         raise HTTPException(status_code = 403, detail = "forbidden")
-    
-    payload = json.loads(rawBody)
+
+    try:
+        payload = json.loads(rawBody)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code = 400, detail = "invalid JSON")
 
     githubEventHeader = request.headers.get("X-GitHub-Event")
-    if githubEventHeader == "push":
-        await handle_push(payload, session)
-    elif githubEventHeader == "pull_request":
-        await handle_pull_request(payload, session)
-    elif githubEventHeader == "workflow_run":
-        await handle_workflow_run(payload, session)
-    elif githubEventHeader == "pull_request_review":
-        await handle_pull_request_review(payload, session)
-    else:
-        print("unhandled event: " + githubEventHeader)
+    try:
+        if githubEventHeader == "push":
+            await handle_push(payload, session)
+        elif githubEventHeader == "pull_request":
+            await handle_pull_request(payload, session)
+        elif githubEventHeader == "workflow_run":
+            await handle_workflow_run(payload, session)
+        elif githubEventHeader == "pull_request_review":
+            await handle_pull_request_review(payload, session)
+        else:
+            print("unhandled event: " + str(githubEventHeader))
+    except Exception as exc:
+        print("handler failed for event " + str(githubEventHeader) + ": " + str(exc))
+        raise HTTPException(status_code = 500, detail = "webhook handler failed")
 
     print(payload)
     return{"status": "received"}
