@@ -50,7 +50,7 @@ async def pr_detail(
     session: AsyncSession = Depends(get_db)
 ):
     full_name = f"{owner}/{name}"
-    repo_id = await get_repo(full_name, session)
-    pull_request_id = await get_pull_request_id(number, repo_id, session)
+    repo = await get_repo(full_name, session)
+    pull_request_id = await get_pull_request_id(number, repo.id, session)
     result = await get_pr_detail(pull_request_id, session)
     return result
