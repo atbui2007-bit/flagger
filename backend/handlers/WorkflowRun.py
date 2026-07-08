@@ -2,6 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from db.repos import get_repo, get_pull_request_id
 from datetime import datetime
+from risk_recompute import recompute_for_pull_request
 
 def parse_dt(value):
     if value is None:
@@ -9,7 +10,8 @@ def parse_dt(value):
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 async def handle_workflow_run(payload, session: AsyncSession):
-    repo_id = await get_repo(payload["repository"]["full_name"], session)
+    repo = await get_repo(payload["repository"]["full_name"], session)
+    repo_id = repo.id
     pr_list = payload["workflow_run"]["pull_requests"]
     if not pr_list:
         return None
@@ -44,5 +46,5 @@ async def handle_workflow_run(payload, session: AsyncSession):
         "completed_at": parse_dt(run.get("updated_at")),
         "created_at": parse_dt(run["created_at"])
     })
-    
+    await recompute_for_pull_request(pull_request_id, session)
     await session.commit()
