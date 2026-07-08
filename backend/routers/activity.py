@@ -33,8 +33,19 @@ def activity_filters(
         clauses.append("commits.risk_level = :risk")
         params["risk"] = risk
     if confidence:
-        clauses.append("LOWER(commits.attribution_confidence) = :confidence")
-        params["confidence"] = confidence.lower()
+        # Dashboard filters by tier (high/medium/low); the DB stores the raw
+        # claim (certain/likely/suspected). Literals are fixed constants here,
+        # never user input.
+        tier = {
+            "high": "('certain', 'high')",
+            "medium": "('likely', 'medium')",
+            "low": "('suspected', 'low')",
+        }.get(confidence.lower())
+        if tier:
+            clauses.append(f"LOWER(commits.attribution_confidence) IN {tier}")
+        else:
+            clauses.append("LOWER(commits.attribution_confidence) = :confidence")
+            params["confidence"] = confidence.lower()
     if search:
         clauses.append("""(
             commits.message ILIKE :search OR
