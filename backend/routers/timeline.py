@@ -48,6 +48,6 @@ async def timeline(
     session: AsyncSession = Depends(get_db)
 ):
     full_name = f"{owner}/{name}"
-    repo_id = await get_repo(full_name, session)
-    result = await get_timeline(limit, cursor, repo_id, session)
+    repo = await get_repo(full_name, session)
+    result = await get_timeline(limit, cursor, repo.id, session)
     return result
