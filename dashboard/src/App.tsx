@@ -16,9 +16,17 @@ function parseRoute(): Route {
 }
 function navigate(path = '/') { location.hash = path === '/' ? '#/' : `#/${path.replace(/^\//, '')}` }
 
+function getInitialTheme(): 'light' | 'dark' {
+  const stored = localStorage.getItem('theme')
+  if (stored === 'light' || stored === 'dark') return stored
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
 export default function App() {
   const [route, setRoute] = useState<Route>(parseRoute)
   const [filters, setFilters] = useState<Filters>(initialFilters)
+  const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme)
+  useEffect(() => { document.documentElement.setAttribute('data-theme', theme); localStorage.setItem('theme', theme) }, [theme])
   useEffect(() => { const update = () => setRoute(parseRoute()); addEventListener('hashchange', update); return () => removeEventListener('hashchange', update) }, [])
   useEffect(() => { const label = route.name === 'pr' ? `Pull request #${route.number}` : route.name[0].toUpperCase() + route.name.slice(1); document.title = `${label} — Flagger` }, [route])
   const updateSearch = (value: string) => { setFilters((current) => ({ ...current, search: value })); if (route.name !== 'activity') navigate('/') }
@@ -27,7 +35,9 @@ export default function App() {
   return <div className="app-shell">
     <header className="topbar"><a className="brand" href="#/" aria-label="Flagger activity">Flagger</a><nav aria-label="Primary navigation">
       {([['activity','Activity'],['repositories','Repositories'],['agents','Agents'],['settings','Settings']] as const).map(([name, label]) => <a key={name} className={route.name === name ? 'active' : ''} href={`#/${name}`}>{label}</a>)}
-    </nav><label className="global-search"><span aria-hidden="true">⌕</span><input type="search" value={filters.search} onChange={(event) => updateSearch(event.target.value)} placeholder="Search commits, repositories, authors" aria-label="Search activity" /></label></header>
+    </nav><label className="global-search"><span aria-hidden="true">⌕</span><input type="search" value={filters.search} onChange={(event) => updateSearch(event.target.value)} placeholder="Search commits, repositories, authors" aria-label="Search activity" /></label>
+    <button type="button" className="icon-button theme-toggle" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>{theme === 'dark' ? '☀' : '☾'}</button>
+    </header>
     {(route.name === 'activity' || route.name === 'agents') && <ActivityFeed view={route.name} filters={filters} setFilters={setFilters} onNavigateActivity={() => navigate('/')} />}
     {route.name === 'repositories' && <Repositories onView={viewRepository} />}
     {route.name === 'settings' && <Settings />}{route.name === 'connect' && <Connect />}
