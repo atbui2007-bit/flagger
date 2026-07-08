@@ -4,11 +4,12 @@ from dotenv import load_dotenv
 from db.repos import get_repo
 from AttributionResolver import attribution_resolver
 from scoring import compute_risk
+from github_app import repo_token
+from github_client import github_request
 from datetime import datetime, timezone
-import httpx, os
+import os
 
 load_dotenv()
-token = os.getenv("GITHUB_TOKEN")
 
 SENSITIVE_PATH_TOKENS = ["env", ".secret", "config", "credentials", "key", "token", "password"]
 
@@ -19,11 +20,8 @@ def parse_dt(value):
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-async def fetch_commit_diff(sha, full_name):
-    url = f"https://api.github.com/repos/{full_name}/commits/{sha}"
-    headers = {"Authorization": f"Bearer {token}"}
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers = headers)
+async def fetch_commit_diff(sha, full_name, token=None):
+    response = await github_request("GET", f"/repos/{full_name}/commits/{sha}", token=token)
     if response.status_code == 200:
         return response.json()
     return None
@@ -32,7 +30,15 @@ async def fetch_commit_diff(sha, full_name):
 async def handle_push(payload, session: AsyncSession):
     full_name = payload["repository"]["full_name"]
     default_branch = payload["repository"]["default_branch"]
-    repo_id = await get_repo(full_name, session)
+    repo = await get_repo(full_name, session)
+    repo_id = repo.id
+    token = await repo_token(repo)
+
+    if repo.default_branch != default_branch:
+        await session.execute(
+            text("UPDATE repos SET default_branch = :default_branch, updated_at = NOW() WHERE id = :id"),
+            {"default_branch": default_branch, "id": repo_id},
+        )
 
     branch = payload["ref"].replace("refs/heads/", "")
     merged_to_default = branch == default_branch
@@ -82,10 +88,16 @@ async def handle_push(payload, session: AsyncSession):
     for commit in payload["commits"]:
         sha = commit["id"]
 
-        attribution = await attribution_resolver(sha, full_name, commit)
-
-        diff = await fetch_commit_diff(sha, full_name)
+        diff = await fetch_commit_diff(sha, full_name, token)
         files = diff["files"] if diff and diff.get("files") else []
+
+        # Push payload commit authors carry name/email but no login; the REST
+        # commit object does -- backfill it so bot-login attribution can fire.
+        api_author = (diff or {}).get("author") or {}
+        if api_author.get("login"):
+            commit["author"]["login"] = api_author["login"]
+
+        attribution = await attribution_resolver(sha, full_name, commit, token)
 
         total_additions = sum(f["additions"] for f in files)
         total_deletions = sum(f["deletions"] for f in files)
@@ -123,8 +135,8 @@ async def handle_push(payload, session: AsyncSession):
             "attribution_confidence": attribution["attribution_confidence"],
             "attribution_signal": attribution["attribution_signal"],
             "author_login": author_login,
-            "author_avatar_url": None,
-            "git_ai_model": None,
+            "author_avatar_url": api_author.get("avatar_url"),
+            "git_ai_model": attribution.get("git_ai_model"),
             "github_ai_summary_prompt": None,
             "github_ai_approved_lines": None,
             "github_ai_overridden_lines": None,
