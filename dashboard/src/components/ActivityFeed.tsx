@@ -90,7 +90,7 @@ function queryString(filters: Filters, cursor?: string | null, includeLimit = tr
 function confidenceLabel(value: string) {
   const normalized = value.toLowerCase()
   if (normalized === 'certain' || normalized === 'high' || Number(value) >= 80) return 'High'
-  if (normalized === 'medium' || Number(value) >= 50) return 'Medium'
+  if (normalized === 'likely' || normalized === 'medium' || Number(value) >= 50) return 'Medium'
   return 'Low'
 }
 
