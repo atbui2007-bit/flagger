@@ -7,6 +7,13 @@
     <meta name="description" content="An auditable ledger of AI-authored engineering activity." />
     <meta name="theme-color" content="#fafaf8" />
     <title>Flagger</title>
+    <script>
+      (function () {
+        var stored = localStorage.getItem('theme')
+        var dark = stored ? stored === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches
+        if (dark) document.documentElement.setAttribute('data-theme', 'dark')
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>
