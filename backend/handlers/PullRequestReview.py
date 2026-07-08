@@ -2,6 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from db.repos import get_repo, get_pull_request_id
 from datetime import datetime
+from risk_recompute import recompute_for_pull_request
 
 def parse_dt(value):
     if value is None:
@@ -9,7 +10,8 @@ def parse_dt(value):
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 async def handle_pull_request_review(payload, session: AsyncSession):
-    repo_id = await get_repo(payload["repository"]["full_name"], session)
+    repo = await get_repo(payload["repository"]["full_name"], session)
+    repo_id = repo.id
     
     pr_number = payload["pull_request"]["number"]
     pull_request_id = await get_pull_request_id(pr_number, repo_id, session)
@@ -37,5 +39,5 @@ async def handle_pull_request_review(payload, session: AsyncSession):
         "submitted_at": parse_dt(review["submitted_at"]),
         "created_at": parse_dt(review["created_at"])
     })
-    
+    await recompute_for_pull_request(pull_request_id, session)
     await session.commit()
