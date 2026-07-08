@@ -3,3 +3,8 @@ webhook_test.py
 .codex/
 .claude/
 .impeccable/
+docs/
+
+__pycache__/
+*.pyc
+.env
