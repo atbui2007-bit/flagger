@@ -141,9 +141,47 @@ function AgentBreakdown({ onInspect }: { onInspect: (agent: string) => void }) {
 }
 
 function reviewState(commit: Commit) {
-  if (commit.risk_no_review) return 'Needs review'
-  if (commit.risk_level === 'low') return 'Approved'
-  return 'Reviewed'
+  const hasHardRisk = commit.risk_ci_unclean || commit.risk_sensitive_path || commit.risk_large_unreviewed || commit.risk_direct_to_main
+  if (commit.risk_level === 'low' && !commit.risk_no_review && !hasHardRisk) return 'Approved'
+  if (commit.risk_no_review) return 'Pending review'
+  if (hasHardRisk) return 'Flagged'
+  return 'Review needed'
+}
+
+function reviewStateClass(commit: Commit) {
+  const state = reviewState(commit)
+  if (state === 'Approved') return 'state-approved'
+  if (state === 'Pending review') return 'state-pending'
+  if (state === 'Flagged') return 'state-flagged'
+  return 'state-review'
+}
+
+function buildReasonChips(commit: Commit) {
+  const reasons = []
+  if (commit.risk_large_unreviewed || commit.additions + commit.deletions > 300) reasons.push('Large diff')
+  if (commit.risk_no_review) reasons.push('No review')
+  if (commit.risk_ci_unclean) reasons.push('CI not clean')
+  if (commit.risk_sensitive_path) reasons.push('Sensitive file')
+  if (commit.risk_direct_to_main) reasons.push('Direct to main')
+  return reasons
+}
+
+function reviewPriority(commit: Commit) {
+  let score = 0
+  if (commit.risk_direct_to_main) score += 500
+  if (commit.risk_sensitive_path) score += 420
+  if (commit.risk_ci_unclean) score += 360
+  if (commit.risk_large_unreviewed) score += 320
+  if (commit.risk_no_review) score += 240
+  switch (commit.risk_level?.toLowerCase()) {
+    case 'high': score += 180; break
+    case 'medium': score += 120; break
+    case 'low': score += 60; break
+    default: score += 20; break
+  }
+  const confidence = Number(commit.attribution_confidence)
+  score += Number.isFinite(confidence) ? Math.min(Math.max(confidence, 0), 100) : 0
+  return score
 }
 
 function dateGroup(value: string) {
@@ -233,6 +271,8 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
   const [cursorHistory, setCursorHistory] = useState<Array<string | null>>([])
   const [selected, setSelected] = useState<Commit | null>(null)
   const [summaryExpanded, setSummaryExpanded] = useState(false)
+  const [insightOpen, setInsightOpen] = useState(false)
+  const [sortMode, setSortMode] = useState<'priority' | 'recent'>('priority')
   const deferredSearch = useDeferredValue(filters.search)
   const queryFilters = { ...filters, search: deferredSearch }
 
@@ -250,13 +290,24 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
   })
 
   const groups = useMemo(() => {
+    const commits = [...(activity.data?.data ?? [])]
+    if (sortMode === 'priority') {
+      commits.sort((a, b) => {
+        const priority = reviewPriority(b) - reviewPriority(a)
+        if (priority !== 0) return priority
+        return new Date(b.pushed_at).getTime() - new Date(a.pushed_at).getTime()
+      })
+    } else {
+      commits.sort((a, b) => new Date(b.pushed_at).getTime() - new Date(a.pushed_at).getTime())
+    }
+
     const result = new Map<string, Commit[]>()
-    activity.data?.data.forEach((commit) => {
+    commits.forEach((commit) => {
       const group = dateGroup(commit.pushed_at)
       result.set(group, [...(result.get(group) || []), commit])
     })
     return [...result.entries()]
-  }, [activity.data])
+  }, [activity.data, sortMode])
 
   function updateFilter(key: keyof Filters, value: string) {
     setFilters((current) => ({ ...current, [key]: value }))
@@ -269,18 +320,55 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
     onNavigateActivity()
   }
 
+  const summaryAiShare = summary.isPending ? null : summary.data?.ai_share_percent ?? 0
+  const summaryReviewNeeded = summary.isPending ? null : summary.data?.review_needed ?? 0
+  const summaryTotalCommits = summary.isPending ? null : summary.data?.total_commits ?? 0
+  const summaryRepositories = summary.isPending ? null : summary.data?.repositories ?? 0
+  const summaryAgentCommits = summary.isPending ? null : summary.data?.ai_authored_commits ?? 0
+  const activityErrorMessage = activity.error instanceof Error ? activity.error.message : 'Unknown error'
+
   return (
     <>
       {view === 'activity' && <section className="summary" aria-label="Activity summary">
+        <button type="button" className={`summary-visual${insightOpen ? ' insight-open' : ''}`} onClick={() => setInsightOpen((value) => !value)} onMouseEnter={() => setInsightOpen(true)} onMouseLeave={() => setInsightOpen(false)} aria-expanded={insightOpen}>
+          <div className="summary-chart" aria-hidden="true">
+            {[44, 68, 56, 82, 64, 90].map((height, index) => (
+              <span key={index} style={{ height: `${height}%`, animationDelay: `${index * 0.1}s` }} />
+            ))}
+          </div>
+          <div className="summary-visual-copy">
+            <strong>Velocity</strong>
+            <span>{summary.isPending ? 'Measuring recent delivery patterns…' : 'Signals from review load, commit volume, and AI share'}</span>
+          </div>
+        </button>
         <div className="summary-primary">
-          <div><strong>{summary.data ? `${summary.data.ai_share_percent}%` : '—'}</strong><span>AI-authored</span></div>
-          <div><strong>{summary.data?.review_needed ?? '—'}</strong><span>Needs review</span></div>
-          <div><strong>{summary.data?.total_commits ?? '—'}</strong><span>Commits</span></div>
+          <button type="button" className="stat-chip" data-populated={!summary.isPending && summaryAiShare > 0} onClick={() => setSummaryExpanded(true)}>
+            <span className="stat-chip-icon" aria-hidden="true">✦</span>
+            <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : `${summaryAiShare}%`}</strong>
+            <span>AI-authored</span>
+          </button>
+          <button type="button" className="stat-chip" data-populated={!summary.isPending && summaryReviewNeeded > 0} onClick={() => setSummaryExpanded(true)}>
+            <span className="stat-chip-icon" aria-hidden="true">⚑</span>
+            <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summaryReviewNeeded}</strong>
+            <span>Needs review</span>
+          </button>
+          <button type="button" className="stat-chip" data-populated={!summary.isPending && summaryTotalCommits > 0} onClick={() => setSummaryExpanded(true)}>
+            <span className="stat-chip-icon" aria-hidden="true">⟲</span>
+            <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summaryTotalCommits}</strong>
+            <span>Commits</span>
+          </button>
         </div>
         {summaryExpanded && (
           <div className="summary-secondary">
-            <span>{summary.data?.repositories ?? '—'} repositories</span>
-            <span>{summary.data?.ai_authored_commits ?? '—'} agent commits</span>
+            <span>{summaryRepositories} repositories</span>
+            <span>{summaryAgentCommits} agent commits</span>
+          </div>
+        )}
+        {insightOpen && (
+          <div className="summary-insight" role="dialog" aria-label="Velocity explanation">
+            <strong>What this gauges</strong>
+            <p>Velocity is a lightweight signal derived from recent commit volume, review backlog, and how much of the work appears AI-authored. It is meant to highlight momentum and coordination pressure, not to declare success.</p>
+            <small>Hover or click the panel to reopen this explanation whenever you need context.</small>
           </div>
         )}
         <button className="summary-toggle" onClick={() => setSummaryExpanded((value) => !value)} aria-expanded={summaryExpanded}>
@@ -296,20 +384,54 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
           </div>
 
           <div className="filters" aria-label="Activity filters">
-            <label><span className="sr-only">Repository</span><select value={filters.repository} onChange={(e) => updateFilter('repository', e.target.value)}><option value="">All repositories</option>{facets.data?.repositories.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-            <label><span className="sr-only">Contributor</span><select value={filters.contributor} onChange={(e) => updateFilter('contributor', e.target.value)}><option value="">All contributors</option>{facets.data?.contributors.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-            <label><span className="sr-only">Agent</span><select value={filters.agent} onChange={(e) => updateFilter('agent', e.target.value)}><option value="">All agents</option>{facets.data?.agents.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-            <label><span className="sr-only">Risk signal</span><select value={filters.risk} onChange={(e) => updateFilter('risk', e.target.value)}><option value="">Any risk signal</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
-            <label><span className="sr-only">Confidence</span><select value={filters.confidence} onChange={(e) => updateFilter('confidence', e.target.value)}><option value="">Any confidence</option><option value="high">High confidence</option><option value="medium">Medium confidence</option><option value="low">Low confidence</option></select></label>
+            <label className="filter-pill"><span className="sr-only">Repository</span><select value={filters.repository} onChange={(e) => updateFilter('repository', e.target.value)}><option value="">All repositories</option>{facets.data?.repositories.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+            <label className="filter-pill"><span className="sr-only">Contributor</span><select value={filters.contributor} onChange={(e) => updateFilter('contributor', e.target.value)}><option value="">All contributors</option>{facets.data?.contributors.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+            <label className="filter-pill"><span className="sr-only">Agent</span><select value={filters.agent} onChange={(e) => updateFilter('agent', e.target.value)}><option value="">All agents</option>{facets.data?.agents.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+            <label className="filter-pill"><span className="sr-only">Risk signal</span><select value={filters.risk} onChange={(e) => updateFilter('risk', e.target.value)}><option value="">Any risk signal</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
+            <label className="filter-pill"><span className="sr-only">Confidence</span><select value={filters.confidence} onChange={(e) => updateFilter('confidence', e.target.value)}><option value="">Any confidence</option><option value="high">High confidence</option><option value="medium">Medium confidence</option><option value="low">Low confidence</option></select></label>
+          </div>
+
+          <div className="filter-hint">
+            <span>Review queue default: sorted by risk and confidence so the highest-priority items surface first.</span>
+            <button type="button" className={`queue-button${sortMode === 'priority' ? ' active' : ''}`} onClick={() => setSortMode('priority')}>Review queue</button>
+            <button type="button" className={`queue-button${sortMode === 'recent' ? ' active' : ''}`} onClick={() => setSortMode('recent')}>Latest first</button>
           </div>
 
           <div className="ledger" role="table" aria-label="Commit activity">
             <div className="ledger-head" role="row">
               <span role="columnheader">Time</span><span role="columnheader">Change</span><span role="columnheader">Repository / branch</span><span role="columnheader">Author / agent</span><span role="columnheader">Confidence</span><span role="columnheader">Changes</span><span role="columnheader">State</span>
             </div>
+            {activity.isPending && (
+              <div className="state-card state-card-loading">
+                <div className="state-card-icon" aria-hidden="true">◌</div>
+                <div className="state-card-copy">
+                  <strong>Loading activity…</strong>
+                  <span>Fetching the latest review signals and commit history.</span>
+                </div>
+              </div>
+            )}
             {activity.isPending && <ActivitySkeleton />}
-            {activity.isError && <div className="state-message"><strong>Activity could not be loaded.</strong><span>Check that the API is running, then try again.</span><button onClick={() => activity.refetch()}>Retry</button></div>}
-            {!activity.isPending && !activity.isError && groups.length === 0 && <div className="state-message"><strong>No activity matches these filters.</strong><span>Clear a filter to broaden the ledger.</span><button onClick={() => setFilters(initialFilters)}>Clear filters</button></div>}
+            {activity.isError && (
+              <div className="state-card state-card-error">
+                <div className="state-card-icon" aria-hidden="true">⚠</div>
+                <div className="state-card-copy">
+                  <strong>Activity could not be loaded.</strong>
+                  <span className="error-detail">{activityErrorMessage}</span>
+                  <span>Check the API connection and try again.</span>
+                </div>
+                <button onClick={() => activity.refetch()}>Retry</button>
+              </div>
+            )}
+            {!activity.isPending && !activity.isError && groups.length === 0 && (
+              <div className="state-card state-card-empty">
+                <div className="state-card-icon" aria-hidden="true">○</div>
+                <div className="state-card-copy">
+                  <strong>No activity matches these filters.</strong>
+                  <span>Clear a filter to broaden the ledger.</span>
+                </div>
+                <button onClick={() => setFilters(initialFilters)}>Clear filters</button>
+              </div>
+            )}
             {groups.map(([group, commits]) => (
               <section className="ledger-group" key={group} aria-label={group}>
                 <h2>{group}</h2>
@@ -319,12 +441,18 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
                   return (
                     <div className={`ledger-row${selected?.id === commit.id ? ' selected' : ''}`} role="row" tabIndex={0} key={commit.id} onClick={() => setSelected(commit)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelected(commit) } }} aria-label={`Inspect ${commit.message}`}>
                       <span className="row-time" role="cell">{formatTime(commit.pushed_at)}</span>
-                      <span className="row-change" role="cell"><strong>{commit.message}</strong><code>{commit.short_sha}</code></span>
+                      <span className="row-change" role="cell">
+                        <strong>{commit.message}</strong>
+                        <code>{commit.short_sha}</code>
+                        <span className="reason-chips" aria-label={`Review reasons for ${commit.short_sha}`}>
+                          {buildReasonChips(commit).slice(0, 2).map((reason) => <span key={reason} className="reason-chip">{reason}</span>)}
+                        </span>
+                      </span>
                       <span className="row-repo" role="cell"><strong>{commit.full_name}</strong><small>{commit.branch}</small></span>
                       <span className="row-author" role="cell"><strong>{commit.author_login}</strong><small>{commit.agent_type}</small></span>
                       <span className={`confidence confidence-${confidence.toLowerCase()}`} role="cell"><i aria-hidden="true" /><span>{confidence}</span><small>{commit.attribution_confidence}</small></span>
                       <span className="row-diff mono" role="cell">+{commit.additions} −{commit.deletions}</span>
-                      <span className={`review-state state-${state.toLowerCase().replace(' ', '-')}`} role="cell"><i aria-hidden="true" />{state}</span>
+                      <span className={`review-state ${reviewStateClass(commit)}`} role="cell"><i aria-hidden="true" />{reviewState(commit)}</span>
                     </div>
                   )
                 })}
