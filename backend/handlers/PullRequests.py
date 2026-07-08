@@ -9,7 +9,8 @@ def parse_dt(value):
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 async def handle_pull_request(payload, session: AsyncSession):
-    repo_id = await get_repo(payload["repository"]["full_name"], session)
+    repo = await get_repo(payload["repository"]["full_name"], session)
+    repo_id = repo.id
     
     pr = payload["pull_request"]
     head_branch = pr["head"]["ref"]
