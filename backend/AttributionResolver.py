@@ -58,8 +58,7 @@ def heuristic_resolver(commit_payload):
                 "attribution_signal": "bot account login",
                 "git_ai_model": None}
     
-    match = re.search(r"co-authored-by:\s*(.+)", commit_payload["message"], re.IGNORECASE)
-    if match:
+    for match in re.finditer(r"co-authored-by:\s*(.+)", commit_payload["message"], re.IGNORECASE):
         author = match.group(1).strip()
         for name, agent in known_authors.items():
             if author.startswith(name):
