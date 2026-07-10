@@ -1,7 +1,15 @@
+import { supabase } from './supabase'
+
 export const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000'
 
 export async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`)
+  const headers: HeadersInit = {}
+  if (supabase) {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    if (token) headers.Authorization = `Bearer ${token}`
+  }
+  const response = await fetch(`${API_BASE}${path}`, { headers })
   if (!response.ok) throw new Error(`Request failed: ${response.status}`)
   return response.json() as Promise<T>
 }
