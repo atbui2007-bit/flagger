@@ -48,7 +48,8 @@ def heuristic_resolver(commit_payload):
                    "devin-ai-integration[bot]": "devin"}
     
     known_authors = {"OpenAI Codex": "Codex",
-                     "Aider": "Aider"}
+                     "Aider": "Aider",
+                     "Claude": "Claude Code"}
     
     if commit_payload["author"].get("login") in known_bots:
         return {"agent_type": known_bots[commit_payload["author"]["login"]],
@@ -57,16 +58,16 @@ def heuristic_resolver(commit_payload):
                 "attribution_signal": "bot account login",
                 "git_ai_model": None}
     
-    if "co-authored-by: " in commit_payload["message"].lower():
-            match = re.search(r"Co-authored-by: (.+)", commit_payload["message"])
-            if match:
-                author = match.group(1)
-                if author in known_authors:
-                    return {"agent_type": known_authors[author],
-                            "attribution_source": "heuristic",
-                            "attribution_confidence": "likely",
-                            "attribution_signal": "bot message",
-                            "git_ai_model": None}
+    match = re.search(r"co-authored-by:\s*(.+)", commit_payload["message"], re.IGNORECASE)
+    if match:
+        author = match.group(1).strip()
+        for name, agent in known_authors.items():
+            if author.startswith(name):
+                return {"agent_type": agent,
+                        "attribution_source": "heuristic",
+                        "attribution_confidence": "likely",
+                        "attribution_signal": "bot message",
+                        "git_ai_model": None}
                 
     return {"agent_type": "unknown",
             "attribution_source": "heuristic",

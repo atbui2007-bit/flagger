@@ -84,23 +84,31 @@ flagger/
 ### Backend file structure
 ```
 backend/
-├── main.py                    FastAPI app, webhook signature verification, event router
+├── main.py                    FastAPI app, webhook signature verification, install guard, event router
 ├── database.py                async engine + session factory (asyncpg, PgBouncer-safe)
+├── auth.py                    require_user() — Supabase JWT verification (HS256 secret or JWKS)
+├── github_client.py           shared httpx AsyncClient + retry/backoff, lifespan-closed
+├── github_app.py              GitHub App JWT → per-installation access token, cached + locked
+├── log_config.py              structured logging setup
 ├── AttributionResolver.py     git-ai note fetch (enhanced) + heuristic fallback
 ├── scoring.py                 compute_risk() — flag-count model
 ├── db/
 │   └── repos.py                get_repo(), get_pull_request_id() lookups
 ├── handlers/
+│   ├── Installation.py         handle_installation(), handle_installation_repositories()
 │   ├── PullRequests.py         handle_pull_request()
 │   ├── WorkflowRun.py          handle_workflow_run()
 │   ├── PullRequestReview.py    handle_pull_request_review()
 │   └── push.py                 handle_push() — commit ingestion, attribution, scoring
 ├── routers/
-│   ├── activity.py             GET /activity/recent, /summary, /facets, /agents
-│   ├── timeline.py             GET /repos/{owner}/{name}/timeline
-│   └── prs.py                  GET /repos/{owner}/{name}/prs/{number}
+│   ├── activity.py             GET /activity/recent, /summary, /facets, /agents (auth-gated)
+│   ├── timeline.py             GET /repos/{owner}/{name}/timeline (auth-gated)
+│   └── prs.py                  GET /repos/{owner}/{name}/prs/{number} (auth-gated)
 └── migrations/
-    └── 001_v1_schema.sql       full DB schema
+    ├── 001_v1_schema.sql       full DB schema
+    ├── 002_repos_removed_at.sql
+    ├── 003_github_app.sql      installations table + repo installation_id linkage
+    └── 004_launch_hardening.sql
 ```
 
 ---
@@ -123,16 +131,19 @@ repos
   webhooks, so this linkage is inferred, not given directly by GitHub.
 - Risk fields on `commits` (`risk_level`, `risk_no_review`, `risk_ci_unclean`,
   `risk_sensitive_path`, `risk_large_unreviewed`, `risk_direct_to_main`) are computed
-  once, at push time, from data available at that instant. They are **not** currently
-  recomputed when later CI or review events arrive — a commit that gets reviewed after
-  the fact does not have its risk score updated.
+  at push time, then **recomputed** when later review/CI webhooks arrive:
+  `risk_recompute.py::recompute_for_pull_request()` is called from both
+  `PullRequestReview.py` and `WorkflowRun.py` and updates all PR-linked commits
+  (setting `altered_at`). Commits with no PR linkage (e.g. direct-to-main) are never
+  recomputed — by design, since no review/CI events reference them.
 - RLS is enabled with default-deny (no policies) across all six tables. This closes
   public PostgREST exposure. It does not affect the backend, which connects as a
   `BYPASSRLS` role through the pooler.
-- Soft-delete convention: any table representing installable/removable state (e.g. a
-  future `installations` table for the GitHub App) uses `removed_at` with
-  `WHERE removed_at IS NULL` on default reads. Hard deletes are not used — the audit
-  trail must survive removal events.
+- Soft-delete convention: any table representing installable/removable state uses
+  soft-delete columns with a `WHERE ... IS NULL` guard on default reads, never hard
+  deletes — the audit trail must survive removal events. `repos` uses `removed_at`;
+  the `installations` table (added in `003_github_app.sql`) uses `suspended_at` /
+  `deleted_at`, set by the `installation` webhook actions (suspend/unsuspend/deleted).
 
 **Conventions that are deliberate, not accidental:**
 - Raw SQL via `text()` with bound params, not declarative ORM models. The schema was
@@ -177,12 +188,12 @@ Cursor Agent mode, Copilot Agent) and Phase 4 (inline suggestions, invisible at 
 layer — would require the VS Code extension) are explicitly out of scope until Phase 1
 is validated with real usage.
 
-**Known-broken component:** `fetch_git_ai_note()` currently calls
-`GET /repos/{full_name}/git/notes/{sha}` — this is not a real GitHub REST endpoint. Git
-notes are not exposed this way; retrieving them requires walking the `refs/notes/ai` ref
-via the Git Data API (tree/blob lookups), not a direct per-commit note fetch. Enhanced
-mode should be assumed non-functional until this is replaced. Do not build features on
-the assumption that git-ai notes are currently being read successfully.
+**Enhanced mode is now implemented** (was previously stubbed against a non-existent
+endpoint). `fetch_git_ai_note()` walks `refs/notes/ai` via the Git Data API the correct
+way: ref → notes commit → tree (`?recursive=1`) → find the blob whose path matches the
+commit SHA → decode the base64 JSON note. It degrades safely (returns `None`) on any
+404/missing-ref/malformed-blob, falling back to the heuristic resolver. `git_ai_model`
+is carried through from the note when present.
 
 ---
 
@@ -212,15 +223,24 @@ Installation happens per org/repo through GitHub's install flow, tokens are scop
 the installation and refreshed automatically, and multiple installations across
 different orgs/accounts are tracked and can be soft-removed without losing history.
 
-**Current gap:** `push.py` and `AttributionResolver.py` both read a single static
-`GITHUB_TOKEN` from the environment via `httpx` calls. This does not scale past one
-GitHub account/org, has no per-installation scoping, and is the piece actively being
-replaced by a GitHub App–based token flow (installation table, locked per-installation
-token cache, a shared guard that checks repo + installation state before any webhook
-handler proceeds). Until that migration is complete, treat any code path using
-`os.getenv("GITHUB_TOKEN")` as temporary scaffolding, not the intended design — new
-GitHub API calls should be written against the installation-scoped pattern, not copy
-the static-token pattern forward.
+**Done — the GitHub App token flow is built:**
+- `github_app.py`: app JWT (`_make_app_jwt`, RS256, private key from env/path) →
+  installation access token via `POST /app/installations/{id}/access_tokens`. Tokens are
+  cached per installation with a 5-minute expiry buffer and guarded by a per-installation
+  `asyncio.Lock` so concurrent webhooks don't stampede the token endpoint.
+- `github_client.py`: one shared `httpx.AsyncClient` with retry/backoff on 5xx/403/429
+  (honors `Retry-After`), closed on app shutdown via the lifespan hook.
+- `handlers/Installation.py`: `installation` and `installation_repositories` webhooks
+  populate the `installations` table and link/unlink `repos.installation_id`.
+- `main.py` runs an **installation guard** before dispatching any repo-scoped event:
+  untracked/removed repo → ignored; missing/suspended/deleted installation → 409.
+- `repo_token(repo)` in `github_app.py` returns the installation token; all handler API
+  calls go through it and `github_request`.
+
+**Remaining scaffolding:** `repo_token()` still falls back to a static `GITHUB_TOKEN`
+when no App is configured (logs a warning). That fallback is the last PAT-era code path —
+new GitHub API calls must use the installation-scoped pattern, never reintroduce a raw
+static-token call.
 
 Webhook signature verification (`X-Hub-Signature-256` HMAC check in `main.py`) is
 already correct and should remain the first thing that happens on every webhook POST,
@@ -228,14 +248,26 @@ before any payload parsing.
 
 ---
 
-## 8. Auth & Hosting (not yet implemented)
+## 8. Auth & Hosting (partially implemented)
 
-There is currently no authentication layer — the dashboard talks to a hardcoded
-`http://localhost:8000` API base, and there is no concept of a logged-in user or
-account boundary. For launch, the dashboard needs to only ever show data the
-authenticated user/org is entitled to see; this is a hard requirement, not a nice-to-
-have, since the product's core promise is a trustworthy audit trail. No production
-hosting decision has been made yet for the backend.
+**Done — backend auth:** `auth.py::require_user` verifies a Supabase JWT on every read
+router (`/activity/*`, `/repos/*` — wired via `Depends(require_user)` in `main.py`). It
+supports both legacy HS256 shared-secret projects (`SUPABASE_JWT_SECRET`) and newer
+asymmetric keys via the JWKS endpoint (ES256/RS256), checking `audience` and `issuer`.
+`AUTH_DISABLED=true` is a local-dev escape hatch that bypasses verification (it logs a
+warning — never set it in a deployed environment). CORS origins are env-driven
+(`CORS_ALLOWED_ORIGINS`).
+
+**Still open (blocks launch requirement #2 — "only see data you're authorized for"):**
+- **Frontend does not send the token yet.** `dashboard/src/lib/api.ts::fetchJson` makes
+  bare `fetch` calls with no `Authorization` header, so the dashboard only works against
+  a backend running `AUTH_DISABLED=true`. Attaching the Supabase session token to
+  requests is the next step.
+- **Row-level entitlement scoping.** `require_user` proves *who* is calling, but the
+  `/activity/*` queries don't yet filter by the caller's authorized installations/orgs —
+  a valid token currently sees all data. Per-user data scoping is still required.
+- No production hosting decision has been made yet for the backend (API base still
+  defaults to `localhost:8000`).
 
 ---
 
@@ -286,13 +318,15 @@ it. No gamification (streaks, leaderboards, adoption scores).
   become, two separate implementations.
 
 **Known gaps against the target:**
-- API base URL is hardcoded to `localhost:8000` — needs to become environment-driven
-  before this can point at anything but a local backend.
-- No GitHub App "Connect" / onboarding flow exists yet in the dashboard — today the only
-  way data appears is via manually-sent test webhooks.
+- API base is now env-driven (`VITE_API_BASE`, `dashboard/src/lib/api.ts`), defaulting to
+  `localhost:8000` — set it in the deploy environment to point at a real backend.
+- `Connect`, `Repositories`, and `Settings` components now exist; the dashboard is no
+  longer activity-feed-only. The GitHub App install/onboarding flow still needs to be
+  driven end-to-end from `Connect` (verify it links to the real App install URL and
+  reflects installation state, not just reads facets).
+- `fetchJson` still sends no auth token — see §8; this is the gating frontend item.
 - No live/WebSocket updates — the backend has no push mechanism yet, and the frontend
   should not grow WebSocket handling ahead of the backend emitting anything.
-- No repo selector/multi-repo navigation beyond the existing activity filter dropdown.
 
 ---
 
@@ -318,6 +352,130 @@ it. No gamification (streaks, leaderboards, adoption scores).
    in this workspace — surface the change clearly rather than applying it silently.
 10. Don't scaffold v2 risk scoring, WebSocket live-feed, or VS Code extension
     reactivation preemptively — these are deferred by design, not by neglect.
+
+## 12. Launch Status — Done / Next
+
+Snapshot of where the build stands against the launch criteria in §2. Update this
+section as items move.
+
+**Done since v1 schema:**
+- GitHub App token flow — installation JWT → cached, per-installation-locked access
+  tokens (`github_app.py`), shared retrying httpx client (`github_client.py`). Replaces
+  the static-PAT path (a fallback remains, §7).
+- `installations` table + `installation`/`installation_repositories` webhooks, with
+  suspend/unsuspend/delete soft-delete and repo linkage (`003_github_app.sql`).
+- Webhook installation guard in `main.py` — ignores untracked repos, 409s on
+  missing/suspended/deleted installs before any handler runs.
+- git-ai enhanced attribution actually implemented via the Git Data API ref-walk (§5).
+- Backend auth — Supabase JWT verification on all read routers (`auth.py`), env-driven
+  CORS, `AUTH_DISABLED` dev escape hatch.
+- Dashboard API base is env-driven; `Connect`/`Repositories`/`Settings` views added.
+- `004_launch_hardening.sql` applied.
+
+**Next (ordered roughly by launch impact):**
+1. **Frontend auth wiring** — `fetchJson` must attach the Supabase session token;
+   today the dashboard only works with `AUTH_DISABLED=true` (§8).
+2. **Row-level entitlement scoping** — filter `/activity/*` and `/repos/*` by the
+   caller's authorized installations/orgs; a valid token currently sees all data (§8).
+   This is launch requirement #2.
+3. ~~Make `"low"` risk reachable~~ **Done for PR-linked commits** (verified end-to-end
+   2026-07-09, see §13.5): review ingestion now works and recompute produces `"low"`.
+   `risk_no_review` is still hardcoded `True` at push time (§6), so the remaining gap
+   is only commits that never get a PR/review.
+4. ~~Recompute risk on later review/CI events~~ **Done** — `risk_recompute.py`, called
+   from the review and workflow handlers (§4, §13.17).
+5. **GitHub App onboarding flow** — drive install end-to-end from the `Connect` view
+   (real App install URL + installation-state reflection), not just facet reads (§10).
+6. **Backend hosting** — no production hosting decision yet; API base still defaults to
+   `localhost:8000` (§8).
+
+Deferred by design (do not build ahead of need): v2 risk scoring, WebSocket live feed,
+VS Code extension (§11.10).
+
+## 13. Known Bugs — Live Run-Through (2026-07-09)
+
+Found by driving the running app (backend + dashboard, Playwright) plus two independent
+code reviews (Claude subagent + Codex). "Live" = reproduced against the running app;
+"code" = confirmed by reading the code; "suspected" = strong evidence, not reproduced.
+
+**Backend**
+1. **FIXED (2026-07-09)** *(was live)* Malformed `cursor` (any non-UUID) → **500** on
+   `/activity/recent` and `/repos/{o}/{n}/timeline`; timeline also 500'd on a
+   valid-but-unknown UUID cursor. Fix: both routers validate the cursor with
+   `UUID(cursor)` and treat invalid values as "no cursor" (first page), and timeline
+   gained the same `cursor_timestamp is not None` guard activity already had.
+   Verified live: malformed/unknown cursors return 200 first pages; valid pagination
+   round-trips unchanged. Codex-reviewed: correct as-is.
+2. **FIXED (2026-07-09)** *(was code)* `timeline.py` `ORDER BY pushed_at DESC` lacked
+   the `id DESC` tiebreaker its `(pushed_at, id)` cursor assumes — same-timestamp
+   commits could be skipped/duplicated across pages. Fix: added `commits.id DESC`,
+   matching `activity.py`.
+3. *(code)* No router filters `repos.removed_at IS NULL` — soft-removed repos still
+   appear in `/activity/recent`, `/summary`, `/facets`. Violates the §4 soft-delete
+   convention on default reads.
+4. *(code)* `handlers/WorkflowRun.py` + `PullRequestReview.py`: `get_pull_request_id()`
+   raises 404 when the event arrives before the PR row exists (webhook race) — the
+   delivery fails and the CI run/review is lost unless GitHub redelivers. Workflow runs
+   with an empty `pull_requests` list are silently dropped (schema requires a PR — may
+   be by design, but pushes-to-main CI is invisible).
+5. **CONFIRMED & FIXED (2026-07-09)** *(was suspected)* `PullRequestReview.py` read
+   `review["created_at"]`, which GitHub's review webhook object does not include (only
+   `submitted_at`) → KeyError/500 on every review webhook; this is why the DB had zero
+   reviews. Fix: `review.get("created_at") or review["submitted_at"]`. Verified
+   end-to-end with a signed `pull_request_review` webhook (no `created_at` key):
+   200, review row inserted, and `risk_recompute` flipped the PR's commit from
+   `medium` → `low` — proving launch requirement #4 ("low" reachable) works once
+   reviews ingest. (`submitted_at` is absent only on PENDING reviews, which never
+   fire this webhook.) Codex-reviewed: correct as-is.
+6. *(code)* `PullRequests.py` upsert's `ON CONFLICT` doesn't update `title`, `url`, or
+   `author_login` — a PR `edited` event leaves the stored title stale.
+7. *(code)* `AttributionResolver.py` co-author check (uncommitted change) uses
+   `re.search`, i.e. only the **first** `Co-authored-by:` trailer — a human co-author
+   listed before the agent hides the agent (→ `unknown`). Use `finditer` over all trailers.
+8. *(code)* Definition drift: push-time `risk_large_unreviewed = additions > 500`
+   (`push.py:113`) but recompute uses `> 500 AND no_review` (`risk_recompute.py:22`).
+   Same flag, two meanings.
+
+**Frontend**
+9. *(live)* "Review queue" (the default sort) scrambles day groups — priority sort runs
+   before day-grouping, so groups render in encounter order: reproduced "Yesterday"
+   above "Today" (`ActivityFeed.tsx:292-310`). Also the sort only applies to the current
+   page, so a critical commit on page 2 still sorts below page 1's low-risk rows.
+10. *(live)* Ledger row title renders the full raw commit message —
+    `Co-authored-by:` trailers leak into the feed ("Add zero and float test cases
+    Co-Authored-By: Claude Sonnet 5 <…") (`ActivityFeed.tsx:445`). Show first line only.
+11. *(live)* PR detail view is unreachable — nothing links to
+    `#/repos/{owner}/{repo}/pr/{n}`; the route and backend endpoint work when hand-typed.
+    Dead UI + dead endpoint.
+12. *(code)* Pagination cursor not reset when filters change from outside
+    `ActivityFeed.updateFilter`: topbar search (`App.tsx:32`), Repositories "View
+    activity" (`App.tsx:33`), and "Clear filters" (`ActivityFeed.tsx:432`) all leave the
+    old cursor active — results newer than the stale cursor are silently missing.
+13. *(code)* Summary chips render errors as real zeros — no `isError` handling on the
+    summary query (`ActivityFeed.tsx:323-327`): a failed fetch shows "0% AI-authored /
+    0 commits" as if true. Cosmetic sibling: `isPending` renders both the loading card
+    and the skeleton simultaneously (`:404-413`).
+14. *(code)* `Repositories.tsx:25-26` — while per-repo summaries are in flight,
+    `review_needed: undefined` renders as the green "Clear" state.
+15. *(code)* `Connect.tsx:15` "Install GitHub App" links to the generic
+    `https://github.com/apps` directory, and `Login.tsx` "Continue with GitHub" performs
+    no auth at all (just navigates to `#/`) — both onboarding CTAs are facades.
+16. *(suspected)* TS strict-null violations at `ActivityFeed.tsx:345,350,355`
+    (`summaryAiShare > 0` on `number | null`) ship only because `build` is bare
+    `vite build` with no `tsc -b` — any future typecheck will fail there.
+
+**Stale docs (this file)**
+17. §12 Next #4 is **done**: `risk_recompute.py` exists and both `PullRequestReview.py`
+    and `WorkflowRun.py` call `recompute_for_pull_request()` after upsert. Consequently
+    "low" risk *is* reachable for PR-linked commits once a review lands (Next #3 is
+    partially stale too — the push-time floor remains, but recompute lifts it).
+    §4's "not recomputed" paragraph needs the same update. ~~Blocked on bug #5~~ —
+    bug #5 is fixed and the full path (review webhook → ingest → recompute → `low`)
+    is verified working end-to-end as of 2026-07-09.
+
+Already tracked in §12, re-confirmed live: no `Authorization` header from `fetchJson`
+(every view 401s without `AUTH_DISABLED=true`) and no per-user entitlement scoping (any
+valid token reads all data).
 
 ## Non-Goals
 

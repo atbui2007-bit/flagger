@@ -37,7 +37,8 @@ async def handle_pull_request_review(payload, session: AsyncSession):
         "reviewer_login": review["user"]["login"],
         "state": review["state"],
         "submitted_at": parse_dt(review["submitted_at"]),
-        "created_at": parse_dt(review["created_at"])
+        # Review webhook objects carry submitted_at but no created_at.
+        "created_at": parse_dt(review.get("created_at") or review["submitted_at"])
     })
     await recompute_for_pull_request(pull_request_id, session)
     await session.commit()

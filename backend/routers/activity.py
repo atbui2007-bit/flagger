@@ -1,4 +1,5 @@
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
@@ -72,6 +73,12 @@ async def get_activity_recent(
 ):
     clauses, params = activity_filters(repository, contributor, agent, risk, confidence, search)
 
+    if cursor:
+        try:
+            UUID(cursor)
+        except ValueError:
+            # Malformed cursor: ignore it (first page), same as unknown ids below.
+            cursor = None
     if cursor:
         lookup = text("SELECT pushed_at FROM commits WHERE id = :cursor_id")
         result = await session.execute(lookup, {"cursor_id": cursor})
