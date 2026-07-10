@@ -110,7 +110,7 @@ async def handle_push(payload, session: AsyncSession):
             for f in files
             for token_str in SENSITIVE_PATH_TOKENS
         )
-        risk_large_unreviewed = total_additions > 500
+        risk_large_unreviewed = total_additions > 500 and risk_no_review
 
         risk_level = compute_risk(
             risk_no_review,
