@@ -18,7 +18,7 @@ def activity_filters(
     confidence: Optional[str],
     search: Optional[str],
 ):
-    clauses = []
+    clauses = ["repos.removed_at IS NULL"]
     params = {}
 
     if repository:
@@ -91,9 +91,10 @@ async def get_activity_recent(
     params["limit"] = limit + 1
 
     query = text(f"""
-        SELECT commits.*, repos.full_name, repos.owner
+        SELECT commits.*, repos.full_name, repos.owner, pull_requests.github_pr_number AS pr_number
         FROM commits
         JOIN repos ON commits.repo_id = repos.id
+        LEFT JOIN pull_requests ON commits.pull_request_id = pull_requests.id
         {where_clause}
         ORDER BY commits.pushed_at DESC, commits.id DESC
         LIMIT :limit
@@ -173,6 +174,7 @@ async def facets(session: AsyncSession = Depends(get_db)):
             ARRAY_AGG(DISTINCT commits.agent_type ORDER BY commits.agent_type) AS agents
         FROM commits
         JOIN repos ON commits.repo_id = repos.id
+        WHERE repos.removed_at IS NULL
     """)
     row = (await session.execute(query)).one()._mapping
     return {
@@ -199,6 +201,8 @@ async def agents(session: AsyncSession = Depends(get_db)):
             MAX(commits.pushed_at) AS last_active,
             ARRAY_AGG(DISTINCT commits.attribution_source ORDER BY commits.attribution_source) AS sources
         FROM commits
+        JOIN repos ON commits.repo_id = repos.id
+        WHERE repos.removed_at IS NULL
         GROUP BY commits.agent_type
         ORDER BY commit_count DESC, commits.agent_type
     """)
