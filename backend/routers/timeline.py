@@ -27,9 +27,10 @@ async def get_timeline(limit, cursor, repo_id, session: AsyncSession):
             params.update({"cursor_timestamp": cursor_timestamp, "cursor_id": cursor})
 
     query = text(f"""
-        SELECT commits.*, repos.full_name, repos.owner
+        SELECT commits.*, repos.full_name, repos.owner, pull_requests.github_pr_number AS pr_number
         FROM commits
         JOIN repos ON commits.repo_id = repos.id
+        LEFT JOIN pull_requests ON commits.pull_request_id = pull_requests.id
         {where_clause}
         ORDER BY commits.pushed_at DESC, commits.id DESC
         LIMIT :limit
