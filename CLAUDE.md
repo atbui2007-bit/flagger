@@ -86,21 +86,33 @@ flagger/
 backend/
 ├── main.py                    FastAPI app, webhook signature verification, event router
 ├── database.py                async engine + session factory (asyncpg, PgBouncer-safe)
+├── auth.py                    Supabase JWT verification, CurrentUser, entitlement filter
+├── github_app.py              GitHub App JWT + per-installation token cache
+├── github_client.py           shared httpx client with retry/backoff
 ├── AttributionResolver.py     git-ai note fetch (enhanced) + heuristic fallback
 ├── scoring.py                 compute_risk() — flag-count model
+├── risk_recompute.py          re-scores a PR's commits when review/CI/linkage changes
 ├── db/
 │   └── repos.py                get_repo(), get_pull_request_id() lookups
 ├── handlers/
-│   ├── PullRequests.py         handle_pull_request()
-│   ├── WorkflowRun.py          handle_workflow_run()
-│   ├── PullRequestReview.py    handle_pull_request_review()
+│   ├── Installation.py         installation / installation_repositories events
+│   ├── PullRequests.py         handle_pull_request() + commit backfill + recompute
+│   ├── WorkflowRun.py          handle_workflow_run() + recompute
+│   ├── PullRequestReview.py    handle_pull_request_review() + recompute
 │   └── push.py                 handle_push() — commit ingestion, attribution, scoring
 ├── routers/
 │   ├── activity.py             GET /activity/recent, /summary, /facets, /agents
 │   ├── timeline.py             GET /repos/{owner}/{name}/timeline
-│   └── prs.py                  GET /repos/{owner}/{name}/prs/{number}
+│   ├── prs.py                  GET /repos/{owner}/{name}/prs/{number}
+│   └── installations.py        POST /installations/claim, GET /installations
+├── tests/                     pytest suite (FakeSession + dependency_overrides pattern)
+├── Dockerfile                 platform-agnostic container (PORT-aware uvicorn)
 └── migrations/
-    └── 001_v1_schema.sql       full DB schema
+    ├── 001_v1_schema.sql       full DB schema
+    ├── 002_repos_removed_at.sql
+    ├── 003_github_app.sql      installations table + repos.installation_id
+    ├── 004_launch_hardening.sql
+    └── 005_installation_members.sql  Supabase user ↔ installation entitlement
 ```
 
 ---
@@ -123,9 +135,10 @@ repos
   webhooks, so this linkage is inferred, not given directly by GitHub.
 - Risk fields on `commits` (`risk_level`, `risk_no_review`, `risk_ci_unclean`,
   `risk_sensitive_path`, `risk_large_unreviewed`, `risk_direct_to_main`) are computed
-  once, at push time, from data available at that instant. They are **not** currently
-  recomputed when later CI or review events arrive — a commit that gets reviewed after
-  the fact does not have its risk score updated.
+  at push time, then re-scored by `risk_recompute.py` when later review, workflow-run,
+  or PR-opened/reopened events arrive for the linked PR. Commits with a NULL
+  `pull_request_id` (direct pushes never associated with a PR) are never recomputed —
+  deliberate, since they genuinely received no review.
 - RLS is enabled with default-deny (no policies) across all six tables. This closes
   public PostgREST exposure. It does not affect the backend, which connects as a
   `BYPASSRLS` role through the pooler.
@@ -177,12 +190,11 @@ Cursor Agent mode, Copilot Agent) and Phase 4 (inline suggestions, invisible at 
 layer — would require the VS Code extension) are explicitly out of scope until Phase 1
 is validated with real usage.
 
-**Known-broken component:** `fetch_git_ai_note()` currently calls
-`GET /repos/{full_name}/git/notes/{sha}` — this is not a real GitHub REST endpoint. Git
-notes are not exposed this way; retrieving them requires walking the `refs/notes/ai` ref
-via the Git Data API (tree/blob lookups), not a direct per-commit note fetch. Enhanced
-mode should be assumed non-functional until this is replaced. Do not build features on
-the assumption that git-ai notes are currently being read successfully.
+**Enhanced mode is implemented correctly**: `fetch_git_ai_note()` walks the
+`refs/notes/ai` ref via the Git Data API (ref → commit → recursive tree → blob),
+handling both flat and fanned-out (sharded `ab/cdef...`) note paths. Known limit:
+`?recursive=1` tree responses truncate on very large note trees (`truncated: true` is
+not handled) — acceptable at launch scale.
 
 ---
 
@@ -194,14 +206,12 @@ yet to train or validate anything more sophisticated, and building v2 (Claude Ba
 → fine-tuned classifier) before v1 has real signal would be premature. Do not scaffold
 v2 unless explicitly asked.
 
-**Known structural issue:** in `handlers/push.py`, `risk_no_review` is currently
-hardcoded to `True` for every commit at ingestion time (there is no review-status check
-being performed yet — reviews arrive later, asynchronously, via a separate webhook).
-Since `compute_risk()` returns `"low"` only when the flag count is exactly zero, and
-`risk_no_review` is always `True` at the moment scoring runs, `"low"` cannot currently
-be produced by the real pipeline. This is a floor problem in the calling code, not in
-`compute_risk()` itself — the function is correct given its inputs. Any fix belongs in
-how/when `risk_no_review` is set, not in the scoring math.
+**How `risk_no_review` resolves:** `handlers/push.py` still sets `risk_no_review =
+True` at ingestion time (reviews arrive later, asynchronously), but
+`risk_recompute.py::recompute_for_pull_request()` re-scores a PR's commits whenever a
+review, workflow run, or PR-opened/reopened event arrives — so `"low"` is achievable
+for any commit that ends up on a reviewed PR. Commits never linked to a PR keep
+`risk_no_review = True` permanently, which is the honest claim: they were not reviewed.
 
 ---
 
@@ -212,15 +222,13 @@ Installation happens per org/repo through GitHub's install flow, tokens are scop
 the installation and refreshed automatically, and multiple installations across
 different orgs/accounts are tracked and can be soft-removed without losing history.
 
-**Current gap:** `push.py` and `AttributionResolver.py` both read a single static
-`GITHUB_TOKEN` from the environment via `httpx` calls. This does not scale past one
-GitHub account/org, has no per-installation scoping, and is the piece actively being
-replaced by a GitHub App–based token flow (installation table, locked per-installation
-token cache, a shared guard that checks repo + installation state before any webhook
-handler proceeds). Until that migration is complete, treat any code path using
-`os.getenv("GITHUB_TOKEN")` as temporary scaffolding, not the intended design — new
-GitHub API calls should be written against the installation-scoped pattern, not copy
-the static-token pattern forward.
+**Current state:** the GitHub App token flow is implemented — `github_app.py` mints
+app JWTs and caches per-installation access tokens (double-checked locking, 5-minute
+expiry margin), the `installations` table (migration 003) tracks installs with
+soft-delete, and `main.py` runs a repo + installation guard before dispatching any
+webhook handler. `GITHUB_TOKEN` survives only as a logged fallback in
+`github_app.py` for repos without an installation — do not write new code against it;
+use the installation-scoped pattern (`repo_token()` / `get_installation_token()`).
 
 Webhook signature verification (`X-Hub-Signature-256` HMAC check in `main.py`) is
 already correct and should remain the first thing that happens on every webhook POST,
@@ -228,14 +236,23 @@ before any payload parsing.
 
 ---
 
-## 8. Auth & Hosting (not yet implemented)
+## 8. Auth & Hosting
 
-There is currently no authentication layer — the dashboard talks to a hardcoded
-`http://localhost:8000` API base, and there is no concept of a logged-in user or
-account boundary. For launch, the dashboard needs to only ever show data the
-authenticated user/org is entitled to see; this is a hard requirement, not a nice-to-
-have, since the product's core promise is a trustworthy audit trail. No production
-hosting decision has been made yet for the backend.
+**Backend auth is implemented.** `auth.py` verifies Supabase JWTs (HS256 legacy secret
+or JWKS) on every data router; `current_user` exposes the caller's Supabase `sub` and
+GitHub identity; every read query is scoped by an entitlement predicate against
+`installation_members` (migration 005) — users only see repos belonging to
+installations they are active members of. Unentitled repos return 404, not 403 (no
+existence leaks). `POST /installations/claim` links a signed-in user to an
+installation after the GitHub App install redirect, verifying the user's GitHub OAuth
+`provider_token` against `GET /user` and `GET /user/installations`. `AUTH_DISABLED=true`
+bypasses auth and scoping for local dev only.
+
+**Still missing for launch:** the dashboard has no Supabase client, sends no
+`Authorization` header, and has no Connect/claim UI — sign-in is GitHub OAuth via
+Supabase (decided), wiring is dashboard work. Hosting: no platform decision yet;
+`backend/Dockerfile` is a platform-agnostic container (respects `PORT`) ready for
+Railway/Render/Fly. Sentry initializes when `SENTRY_DSN` is set.
 
 ---
 
@@ -254,6 +271,12 @@ hosting decision has been made yet for the backend.
 - `GET /repos/{owner}/{name}/timeline` — same cursor pattern, scoped to one repo.
 - `GET /repos/{owner}/{name}/prs/{number}` — single PR detail: pull request row, plus
   its commits, CI runs, and reviews (four separate queries, not a join).
+- `POST /installations/claim` — links the authenticated user to a GitHub App
+  installation after the install redirect (verifies the GitHub OAuth provider token).
+- `GET /installations` — the authenticated user's installations, with repo counts.
+
+All read endpoints require a Supabase bearer token and are scoped to the caller's
+installation memberships (see §8).
 
 API responsibility stops at data normalization. Formatting, relative timestamps, color/
 risk presentation, and grouping are the dashboard's job, not the backend's.
@@ -286,10 +309,13 @@ it. No gamification (streaks, leaderboards, adoption scores).
   become, two separate implementations.
 
 **Known gaps against the target:**
-- API base URL is hardcoded to `localhost:8000` — needs to become environment-driven
-  before this can point at anything but a local backend.
-- No GitHub App "Connect" / onboarding flow exists yet in the dashboard — today the only
-  way data appears is via manually-sent test webhooks.
+- No auth wiring: there is no Supabase client in the dashboard, no GitHub OAuth
+  sign-in, and no `Authorization` header on API calls — but the backend now requires a
+  bearer token on every data route. This is the top frontend launch blocker. The claim
+  flow also needs the dashboard to capture `session.provider_token` at sign-in.
+- No GitHub App "Connect" / onboarding flow exists yet in the dashboard (the backend
+  `POST /installations/claim` endpoint is ready and has no caller).
+- API base URL is env-driven (`VITE_API_BASE`, falling back to `localhost:8000`).
 - No live/WebSocket updates — the backend has no push mechanism yet, and the frontend
   should not grow WebSocket handling ahead of the backend emitting anything.
 - No repo selector/multi-repo navigation beyond the existing activity filter dropdown.

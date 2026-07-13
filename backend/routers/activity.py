@@ -4,12 +4,14 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth import CurrentUser, current_user, entitlement_filter
 from database import get_db
 
 router = APIRouter()
 
 
 def activity_filters(
+    user: CurrentUser,
     repository: Optional[str],
     contributor: Optional[str],
     agent: Optional[str],
@@ -17,8 +19,7 @@ def activity_filters(
     confidence: Optional[str],
     search: Optional[str],
 ):
-    clauses = []
-    params = {}
+    clauses, params = entitlement_filter(user)
 
     if repository:
         clauses.append("repos.full_name = :repository")
@@ -60,6 +61,7 @@ def activity_filters(
 
 
 async def get_activity_recent(
+    user: CurrentUser,
     limit: int,
     cursor: Optional[str],
     repository: Optional[str],
@@ -70,7 +72,7 @@ async def get_activity_recent(
     search: Optional[str],
     session: AsyncSession,
 ):
-    clauses, params = activity_filters(repository, contributor, agent, risk, confidence, search)
+    clauses, params = activity_filters(user, repository, contributor, agent, risk, confidence, search)
 
     if cursor:
         lookup = text("SELECT pushed_at FROM commits WHERE id = :cursor_id")
@@ -115,10 +117,11 @@ async def recent(
     risk: Optional[str] = Query(default=None),
     confidence: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None, max_length=200),
+    user: CurrentUser = Depends(current_user),
     session: AsyncSession = Depends(get_db),
 ):
     return await get_activity_recent(
-        limit, cursor, repository, contributor, agent, risk, confidence, search, session
+        user, limit, cursor, repository, contributor, agent, risk, confidence, search, session
     )
 
 
@@ -130,9 +133,10 @@ async def summary(
     risk: Optional[str] = Query(default=None),
     confidence: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None, max_length=200),
+    user: CurrentUser = Depends(current_user),
     session: AsyncSession = Depends(get_db),
 ):
-    clauses, params = activity_filters(repository, contributor, agent, risk, confidence, search)
+    clauses, params = activity_filters(user, repository, contributor, agent, risk, confidence, search)
     where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     query = text(f"""
         SELECT
@@ -158,16 +162,22 @@ async def summary(
 
 
 @router.get("/facets")
-async def facets(session: AsyncSession = Depends(get_db)):
-    query = text("""
+async def facets(
+    user: CurrentUser = Depends(current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    clauses, params = entitlement_filter(user)
+    where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    query = text(f"""
         SELECT
             ARRAY_AGG(DISTINCT repos.full_name ORDER BY repos.full_name) AS repositories,
             ARRAY_AGG(DISTINCT commits.author_login ORDER BY commits.author_login) AS contributors,
             ARRAY_AGG(DISTINCT commits.agent_type ORDER BY commits.agent_type) AS agents
         FROM commits
         JOIN repos ON commits.repo_id = repos.id
+        {where_clause}
     """)
-    row = (await session.execute(query)).one()._mapping
+    row = (await session.execute(query, params)).one()._mapping
     return {
         "repositories": row["repositories"] or [],
         "contributors": row["contributors"] or [],
@@ -176,8 +186,13 @@ async def facets(session: AsyncSession = Depends(get_db)):
 
 
 @router.get("/agents")
-async def agents(session: AsyncSession = Depends(get_db)):
-    query = text("""
+async def agents(
+    user: CurrentUser = Depends(current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    clauses, params = entitlement_filter(user)
+    where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    query = text(f"""
         SELECT
             commits.agent_type,
             COUNT(*) AS commit_count,
@@ -192,10 +207,11 @@ async def agents(session: AsyncSession = Depends(get_db)):
             MAX(commits.pushed_at) AS last_active,
             ARRAY_AGG(DISTINCT commits.attribution_source ORDER BY commits.attribution_source) AS sources
         FROM commits
+        {where_clause}
         GROUP BY commits.agent_type
         ORDER BY commit_count DESC, commits.agent_type
     """)
-    result = await session.execute(query)
+    result = await session.execute(query, params)
     data = [dict(row._mapping) for row in result.fetchall()]
     for row in data:
         row["commits"] = row.pop("commit_count")

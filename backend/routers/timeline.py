@@ -1,6 +1,7 @@
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter, Depends, Query
+from auth import CurrentUser, current_user
 from database import get_db
 from db.repos import get_repo
 
@@ -45,9 +46,10 @@ async def timeline(
     name: str,
     limit: int = Query(default=20, le=100),
     cursor: str = Query(default=None),
+    user: CurrentUser = Depends(current_user),
     session: AsyncSession = Depends(get_db)
 ):
     full_name = f"{owner}/{name}"
-    repo = await get_repo(full_name, session)
+    repo = await get_repo(full_name, session, user=user)
     result = await get_timeline(limit, cursor, repo.id, session)
     return result

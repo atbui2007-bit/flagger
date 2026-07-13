@@ -1,7 +1,8 @@
 import os
+from dataclasses import dataclass
 
 import jwt
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException
 
 from log_config import get_logger
 
@@ -52,3 +53,38 @@ async def require_user(authorization: str | None = Header(default=None)):
         )
     except jwt.PyJWTError as exc:
         raise HTTPException(status_code=401, detail="invalid bearer token") from exc
+
+
+@dataclass(frozen=True)
+class CurrentUser:
+    id: str | None            # Supabase JWT sub
+    github_login: str | None  # user_metadata.user_name (GitHub OAuth provider)
+    github_id: str | None     # user_metadata.provider_id (GitHub numeric user id)
+    auth_disabled: bool = False
+
+
+async def current_user(claims: dict = Depends(require_user)) -> CurrentUser:
+    if claims.get("auth_disabled"):
+        return CurrentUser(id=None, github_login=None, github_id=None, auth_disabled=True)
+    meta = claims.get("user_metadata") or {}
+    return CurrentUser(
+        id=claims["sub"],
+        github_login=meta.get("user_name"),
+        github_id=meta.get("provider_id") or meta.get("sub"),
+    )
+
+
+# Entitlement: a user sees commits for repos whose installation they are an
+# active member of. Kept as an IN-subquery so it composes with the existing
+# clauses/params pattern in one round-trip (PgBouncer transaction mode).
+ENTITLED_COMMITS_PREDICATE = """commits.repo_id IN (
+    SELECT r.id FROM repos r
+    JOIN installation_members im ON im.installation_id = r.installation_id
+    WHERE im.supabase_user_id = :auth_user_id AND im.removed_at IS NULL
+)"""
+
+
+def entitlement_filter(user: CurrentUser) -> tuple[list[str], dict]:
+    if user.auth_disabled:
+        return [], {}
+    return [ENTITLED_COMMITS_PREDICATE], {"auth_user_id": user.id}

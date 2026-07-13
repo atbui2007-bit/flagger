@@ -13,14 +13,26 @@ class RepoInfo(NamedTuple):
     installation_suspended_at: object
     installation_deleted_at: object
 
-async def get_repo(full_name, session):
-    query = text("""SELECT r.id, r.installation_id, r.default_branch, r.attribution_mode,
-                           r.full_name, i.github_installation_id,
-                           i.suspended_at, i.deleted_at
-                    FROM repos r
-                    LEFT JOIN installations i ON r.installation_id = i.id
-                    WHERE r.full_name = :full_name AND r.removed_at IS NULL""")
-    result = await session.execute(query, {"full_name": full_name})
+async def get_repo(full_name, session, user=None):
+    # user=None is the webhook/handler path (no entitlement check). When a
+    # CurrentUser is passed, unentitled repos 404 exactly like missing ones --
+    # a 403 would confirm the repo is tracked, which is an existence leak.
+    sql = """SELECT r.id, r.installation_id, r.default_branch, r.attribution_mode,
+                    r.full_name, i.github_installation_id,
+                    i.suspended_at, i.deleted_at
+             FROM repos r
+             LEFT JOIN installations i ON r.installation_id = i.id
+             WHERE r.full_name = :full_name AND r.removed_at IS NULL"""
+    params = {"full_name": full_name}
+    if user is not None and not user.auth_disabled:
+        sql += """ AND EXISTS (
+                SELECT 1 FROM installation_members im
+                WHERE im.installation_id = r.installation_id
+                  AND im.supabase_user_id = :auth_user_id
+                  AND im.removed_at IS NULL
+            )"""
+        params["auth_user_id"] = user.id
+    result = await session.execute(text(sql), params)
     
     row = result.fetchone()
     if(not row):

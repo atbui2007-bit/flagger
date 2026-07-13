@@ -11,14 +11,19 @@ from handlers.Installation import handle_installation, handle_installation_repos
 from routers.activity import router as activity_router
 from routers.timeline import router as timeline_router
 from routers.prs import router as prs_router
+from routers.installations import router as installations_router
 from github_client import close_client
 from log_config import configure_logging, get_logger
 from auth import require_user
 from sqlalchemy import text
 from contextlib import asynccontextmanager
 import json, hmac, hashlib, os
+import sentry_sdk
 
 load_dotenv()
+sentry_dsn = os.getenv("SENTRY_DSN")
+if sentry_dsn:
+    sentry_sdk.init(dsn=sentry_dsn)
 secret = os.getenv("WEBHOOK_SECRET")
 if not secret:
     raise RuntimeError("WEBHOOK_SECRET is required")
@@ -42,6 +47,7 @@ app.add_middleware(
 app.include_router(activity_router, prefix = "/activity", dependencies=[Depends(require_user)])
 app.include_router(timeline_router, prefix = "/repos", dependencies=[Depends(require_user)])
 app.include_router(prs_router, prefix = "/repos", dependencies=[Depends(require_user)])
+app.include_router(installations_router, prefix = "/installations", dependencies=[Depends(require_user)])
 
 @app.get("/health")
 

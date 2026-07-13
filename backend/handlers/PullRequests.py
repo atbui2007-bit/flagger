@@ -1,6 +1,7 @@
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from db.repos import get_repo
+from risk_recompute import recompute_for_pull_request
 from datetime import datetime, timezone
 
 def parse_dt(value):
@@ -60,5 +61,8 @@ async def handle_pull_request(payload, session: AsyncSession):
             "repo_id": repo_id,
             "head_branch": head_branch,
         })
-    
+        # Backfilled commits carry push-time risk flags from before the PR
+        # existed; re-score them now rather than waiting on a review/CI event.
+        await recompute_for_pull_request(pull_request_id, session)
+
     await session.commit()

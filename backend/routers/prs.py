@@ -1,6 +1,7 @@
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter, Depends
+from auth import CurrentUser, current_user
 from database import get_db
 from db.repos import get_repo, get_pull_request_id
 
@@ -47,10 +48,11 @@ async def pr_detail(
     owner: str,
     name: str,
     number: int,
+    user: CurrentUser = Depends(current_user),
     session: AsyncSession = Depends(get_db)
 ):
     full_name = f"{owner}/{name}"
-    repo = await get_repo(full_name, session)
+    repo = await get_repo(full_name, session, user=user)
     pull_request_id = await get_pull_request_id(number, repo.id, session)
     result = await get_pr_detail(pull_request_id, session)
     return result
