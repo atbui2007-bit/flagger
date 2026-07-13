@@ -31,10 +31,13 @@ view of AI-authored activity, with budget authority.
 **Secondary users:** individual developers reviewing their own agent activity — the same
 feed, scoped with a contributor filter. There is one view, not two products.
 
-**Brand/product feel** (see `DESIGN.md` for full tokens): a quiet, dense, forensic
-ledger — Linear's information density, Vercel's restraint, GitHub's familiarity with
-SHAs/branches/diffs. Explicitly not a Datadog/Splunk-style observability wall, no
-gamification, no color-only risk signals, no feed reflow on live updates.
+**Brand/product feel** (see `DESIGN.md` for full tokens): "The Ledger Under Glass" —
+a dark-first, dense, forensic ledger read through quiet glass chrome. Linear's
+information density, GitHub's familiarity with SHAs/branches/diffs; frosted-glass
+treatment on the chrome only (topbar, summary bar, Evidence Inspector, overlays) over
+a near-black canvas with two fixed aurora glows. Explicitly not a Datadog/Splunk-style
+observability wall, no gamification, no color-only risk signals, no feed reflow on
+live updates, no animated backgrounds.
 
 ---
 
@@ -305,10 +308,15 @@ risk presentation, and grouping are the dashboard's job, not the backend's.
 Stack: React 19, Vite, TypeScript, Tailwind (`@tailwindcss/vite`), TanStack Query.
 
 **Design principle: this is a ledger, not a monitoring dashboard.** Row-based, dense,
-typographically-driven layout (see `DESIGN.md`). Achromatic surfaces; color is reserved
-for review/reviewed/approved states only, always paired with text/icon, never
-color-alone. No auto-refresh reflow — the feed must not jump while someone is reading
-it. No gamification (streaks, leaderboards, adoption scores).
+typographically-driven layout (see `DESIGN.md`). Dark-first with glass reserved for
+the chrome: topbar, summary bar, Evidence Inspector, and transient overlays are
+frosted glass (5% white fill, 10% white hairline border, 16px blur max); feed rows and
+anything carrying dense text stay opaque and flat. One aurora-blue action color;
+review/reviewed/approved keep their own state colors, always paired with text/icon,
+never color-alone. Glass collapses to opaque surfaces under
+`prefers-reduced-transparency`/`forced-colors`. No auto-refresh reflow — the feed must
+not jump while someone is reading it. No gamification (streaks, leaderboards, adoption
+scores). No animated glows/parallax.
 
 **Current implementation (`dashboard/src/components/ActivityFeed.tsx`):**
 - **Activity view** — cursor-paginated ledger grouped by day, with filters (repository,
