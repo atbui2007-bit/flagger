@@ -277,7 +277,6 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
   const [cursorHistory, setCursorHistory] = useState<Array<string | null>>([])
   const [selected, setSelected] = useState<Commit | null>(null)
   const [summaryExpanded, setSummaryExpanded] = useState(false)
-  const [insightOpen, setInsightOpen] = useState(false)
   const [sortMode, setSortMode] = useState<'priority' | 'recent'>('priority')
   const deferredSearch = useDeferredValue(filters.search)
   const queryFilters = { ...filters, search: deferredSearch }
@@ -339,58 +338,37 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
 
   return (
     <>
-      {view === 'activity' && <section className="summary" aria-label="Activity summary">
-        <button type="button" className={`summary-visual${insightOpen ? ' insight-open' : ''}`} onClick={() => setInsightOpen((value) => !value)} onMouseEnter={() => setInsightOpen(true)} onMouseLeave={() => setInsightOpen(false)} aria-expanded={insightOpen}>
-          <div className="summary-chart" aria-hidden="true">
-            {[44, 68, 56, 82, 64, 90].map((height, index) => (
-              <span key={index} style={{ height: `${height}%`, animationDelay: `${index * 0.1}s` }} />
-            ))}
-          </div>
-          <div className="summary-visual-copy">
-            <strong>Velocity</strong>
-            <span>{summary.isPending ? 'Measuring recent delivery patterns…' : 'Signals from review load, commit volume, and AI share'}</span>
-          </div>
-        </button>
-        <div className="summary-primary">
-          <button type="button" className="stat-chip" data-populated={summaryReady && summaryAiShare > 0} onClick={() => setSummaryExpanded(true)}>
-            <span className="stat-chip-icon" aria-hidden="true">✦</span>
-            <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summary.isError ? '—' : `${summaryAiShare}%`}</strong>
-            <span>AI-authored</span>
-          </button>
-          <button type="button" className="stat-chip" data-populated={summaryReady && summaryReviewNeeded > 0} onClick={() => setSummaryExpanded(true)}>
-            <span className="stat-chip-icon" aria-hidden="true">⚑</span>
-            <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summary.isError ? '—' : summaryReviewNeeded}</strong>
-            <span>Needs review</span>
-          </button>
-          <button type="button" className="stat-chip" data-populated={summaryReady && summaryTotalCommits > 0} onClick={() => setSummaryExpanded(true)}>
-            <span className="stat-chip-icon" aria-hidden="true">⟲</span>
-            <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summary.isError ? '—' : summaryTotalCommits}</strong>
-            <span>Commits</span>
-          </button>
-        </div>
-        {summaryExpanded && (
-          <div className="summary-secondary">
-            <span>{summaryRepositories} repositories</span>
-            <span>{summaryAgentCommits} agent commits</span>
-          </div>
-        )}
-        {insightOpen && (
-          <div className="summary-insight" role="dialog" aria-label="Velocity explanation">
-            <strong>What this gauges</strong>
-            <p>Velocity is a lightweight signal derived from recent commit volume, review backlog, and how much of the work appears AI-authored. It is meant to highlight momentum and coordination pressure, not to declare success.</p>
-            <small>Hover or click the panel to reopen this explanation whenever you need context.</small>
-          </div>
-        )}
-        <button className="summary-toggle" onClick={() => setSummaryExpanded((value) => !value)} aria-expanded={summaryExpanded}>
-          {summaryExpanded ? 'Fewer details' : 'More details'} <span aria-hidden="true">⌄</span>
-        </button>
-      </section>}
-
       {view === 'agents' ? <AgentBreakdown onInspect={inspectAgent} /> : <main className={`workspace${selected ? ' has-inspector' : ''}`} id="activity">
         <section className="activity-pane" aria-labelledby="activity-title">
           <div className="activity-heading">
             <div><h1 id="activity-title">Activity</h1><p>AI-authored changes across connected repositories</p></div>
-            {selected && <span className="update-status" aria-live="polite">Updates paused while reviewing</span>}
+            <div className="heading-side">
+              <div className="summary-strip" aria-label="Activity summary">
+                <span className="strip-stat" data-populated={summaryReady && summaryAiShare > 0}>
+                  <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summary.isError ? '—' : `${summaryAiShare}%`}</strong> AI-authored
+                </span>
+                <span aria-hidden="true">·</span>
+                <span className="strip-stat" data-populated={summaryReady && summaryReviewNeeded > 0}>
+                  <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summary.isError ? '—' : summaryReviewNeeded}</strong> need review
+                </span>
+                <span aria-hidden="true">·</span>
+                <span className="strip-stat" data-populated={summaryReady && summaryTotalCommits > 0}>
+                  <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summary.isError ? '—' : summaryTotalCommits}</strong> commits
+                </span>
+                {summaryExpanded && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span className="strip-stat">{summaryRepositories} repositories</span>
+                    <span aria-hidden="true">·</span>
+                    <span className="strip-stat">{summaryAgentCommits} agent commits</span>
+                  </>
+                )}
+                <button className="strip-more" onClick={() => setSummaryExpanded((value) => !value)} aria-expanded={summaryExpanded}>
+                  {summaryExpanded ? 'Less' : 'More'}
+                </button>
+              </div>
+              {selected && <span className="update-status" aria-live="polite">Updates paused while reviewing</span>}
+            </div>
           </div>
 
           <div className="filters" aria-label="Activity filters">
