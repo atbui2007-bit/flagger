@@ -2,7 +2,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from db.repos import get_repo, get_pull_request_id
 from datetime import datetime
+from github_app import repo_token
+from github_client import github_request
+from handlers.PullRequests import upsert_pull_request
+from log_config import get_logger
 from risk_recompute import recompute_for_pull_request
+
+logger = get_logger(__name__)
 
 def parse_dt(value):
     if value is None:
@@ -14,10 +20,21 @@ async def handle_workflow_run(payload, session: AsyncSession):
     repo_id = repo.id
     pr_list = payload["workflow_run"]["pull_requests"]
     if not pr_list:
+        logger.info("skipping workflow_run without pull_requests", extra={"repo": repo.full_name})
         return None
     
     pr_number  = pr_list[0]["number"]
-    pull_request_id = await get_pull_request_id(pr_number, repo_id, session)
+    pull_request_id = await get_pull_request_id(pr_number, repo_id, session, required=False)
+    if pull_request_id is None:
+        token = await repo_token(repo)
+        response = await github_request("GET", f"/repos/{repo.full_name}/pulls/{pr_number}", token=token)
+        if response.status_code != 200:
+            logger.warning(
+                "skipping workflow_run because pull request fetch failed",
+                extra={"repo": repo.full_name, "pr_number": pr_number, "status": response.status_code},
+            )
+            return None
+        pull_request_id = await upsert_pull_request(response.json(), repo_id, session)
     run = payload["workflow_run"]
 
     upsert_query = text("""

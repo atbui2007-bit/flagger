@@ -73,6 +73,7 @@ async def handle_push(payload, session: AsyncSession):
             :risk_sensitive_path, :risk_large_unreviewed, :risk_direct_to_main,
             :pushed_at, :arrived_at, :altered_at
         )
+        ON CONFLICT (sha) DO NOTHING
         RETURNING id
     """)
 
@@ -109,7 +110,7 @@ async def handle_push(payload, session: AsyncSession):
             for f in files
             for token_str in SENSITIVE_PATH_TOKENS
         )
-        risk_large_unreviewed = total_additions > 500
+        risk_large_unreviewed = total_additions > 500 and risk_no_review
 
         risk_level = compute_risk(
             risk_no_review,
@@ -153,6 +154,9 @@ async def handle_push(payload, session: AsyncSession):
             "altered_at": None,
         })
         commit_id = result.scalar()
+        if commit_id is None:
+            # Commit already ingested (GitHub redelivered the webhook); skip.
+            continue
 
         for f in files:
             await session.execute(file_change_insert, {

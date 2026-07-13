@@ -12,10 +12,28 @@ def parse_dt(value):
 async def handle_pull_request(payload, session: AsyncSession):
     repo = await get_repo(payload["repository"]["full_name"], session)
     repo_id = repo.id
-    
     pr = payload["pull_request"]
     head_branch = pr["head"]["ref"]
-    
+
+    pull_request_id = await upsert_pull_request(pr, repo_id, session)
+
+    # Backfill: link any commits pushed to this branch before the PR existed
+    if payload["action"] == "opened" or payload["action"] == "reopened":
+        backfill_query = text("""
+            UPDATE commits SET pull_request_id = :pull_request_id
+            WHERE repo_id = :repo_id AND branch = :head_branch AND pull_request_id IS NULL
+        """)
+        await session.execute(backfill_query, {
+            "pull_request_id": pull_request_id,
+            "repo_id": repo_id,
+            "head_branch": head_branch,
+        })
+
+    await session.commit()
+
+async def upsert_pull_request(pr, repo_id, session: AsyncSession):
+    head_branch = pr["head"]["ref"]
+
     upsert_query = text("""
         INSERT INTO pull_requests (
             id, repo_id, github_pr_number, title, url,
@@ -27,6 +45,9 @@ async def handle_pull_request(payload, session: AsyncSession):
         )
         ON CONFLICT (github_pr_number, repo_id)
         DO UPDATE SET
+            title = EXCLUDED.title,
+            url = EXCLUDED.url,
+            author_login = EXCLUDED.author_login,
             state = EXCLUDED.state,
             head_branch = EXCLUDED.head_branch,
             updated_at = EXCLUDED.updated_at,

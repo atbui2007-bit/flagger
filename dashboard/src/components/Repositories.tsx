@@ -23,7 +23,7 @@ export default function Repositories({ onView }: { onView: (repository: string) 
       {!failed && repositories.map((repository, index) => { const summary = summaries[index].data; return <button className="repository-row" role="row" key={repository} onClick={() => onView(repository)} aria-label={`View ${repository} activity`}>
         <strong className="mono" role="cell">{repository}</strong><span role="cell">{summary?.total_commits ?? '—'}</span>
         <span className="agent-share" role="cell"><span><i style={{ width: `${summary?.ai_share_percent ?? 0}%` }} /></span><small>{summary?.ai_share_percent ?? 0}%</small></span>
-        <span className={`review-state ${(summary?.review_needed ?? 0) > 0 ? 'state-needs-review' : 'state-approved'}`} role="cell"><i aria-hidden="true" />{summary?.review_needed ? `${summary.review_needed} need review` : 'Clear'}</span>
+        {summary ? <span className={`review-state ${summary.review_needed > 0 ? 'state-needs-review' : 'state-approved'}`} role="cell"><i aria-hidden="true" />{summary.review_needed ? `${summary.review_needed} need review` : 'Clear'}</span> : <span className="review-state" role="cell">—</span>}
         <span className="row-action" role="cell">View activity <span aria-hidden="true">→</span></span>
       </button> })}
     </div>

@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Flagger — the audit trail for AI-written code</title>
+<meta name="description" content="Flagger records every commit your AI coding agents author: who wrote it, how confident the attribution is, and how much human review it got. One GitHub App install, nothing for developers to set up." />
+<meta property="og:title" content="Flagger — the audit trail for AI-written code" />
+<meta property="og:description" content="Everything AI touched in your repos. Ordered, traceable, in one place." />
+<style>
+  /* ── Tokens (mirrors DESIGN.md / dashboard index.css) ─────────────── */
+  :root {
+    --canvas: #f4f4f2;
+    --surface: #fafaf8;
+    --surface-strong: #ffffff;
+    --surface-muted: #eeeeeb;
+    --ink: #22262d;
+    --ink-soft: #515862;
+    --ink-muted: #666d76;
+    --divider: #dcdeda;
+    --divider-soft: #e8e9e6;
+    --focus: #303640;
+    --review: #863128;
+    --review-bg: #f8e9e6;
+    --approved: #215f40;
+    --approved-bg: #e7f2eb;
+    --reviewed: #315579;
+    --reviewed-bg: #e9eef5;
+    --fill-hover: #363b43;
+    --fill-active: #11151a;
+    --ease-out: cubic-bezier(.16, 1, .3, 1);
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --canvas: #1b1d20;
+      --surface: #232528;
+      --surface-strong: #2e3034;
+      --surface-muted: #35383c;
+      --ink: #f4f6f8;
+      --ink-soft: #c8cdd4;
+      --ink-muted: #8b96a3;
+      --divider: #41464d;
+      --divider-soft: #2f3439;
+      --focus: #dce1e8;
+      --review: #e2948a;
+      --review-bg: #412b28;
+      --approved: #7fcb9c;
+      --approved-bg: #223a2c;
+      --reviewed: #93b3da;
+      --reviewed-bg: #26334a;
+      --fill-hover: #e1e5e9;
+      --fill-active: #c8ccd2;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    min-width: 320px;
+    color: var(--ink);
+    background: var(--canvas);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-size: 1.0625rem;
+    line-height: 1.55;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3 { text-wrap: balance; }
+  p { text-wrap: pretty; }
+  code, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  ::selection { background: var(--ink); color: var(--canvas); }
+
+  .shell { max-width: 1126px; margin: 0 auto; padding-inline: clamp(20px, 4vw, 40px); }
+
+  /* ── Nav ──────────────────────────────────────────────────────────── */
+  .nav {
+    display: flex; align-items: center; gap: clamp(16px, 3vw, 32px);
+    min-height: 64px; border-bottom: 1px solid var(--divider);
+  }
+  .wordmark {
+    color: var(--ink); font-weight: 700; font-size: 1.125rem;
+    letter-spacing: -.025em; text-decoration: none;
+  }
+  .wordmark span { color: var(--ink-muted); font-weight: 400; }
+  .nav-links { display: flex; gap: clamp(12px, 2vw, 24px); margin-left: auto; }
+  .nav-links a { color: var(--ink-soft); font-size: .875rem; text-decoration: none; }
+  .nav-links a:hover { color: var(--ink); }
+  .nav .button { margin-left: clamp(4px, 1vw, 12px); }
+
+  .button {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 42px; padding: 0 18px;
+    color: var(--canvas); background: var(--ink);
+    border: 0; border-radius: 6px; cursor: pointer;
+    font-size: .875rem; font-weight: 600; text-decoration: none;
+    transition: background 180ms var(--ease-out);
+  }
+  .button:hover { background: var(--fill-hover); }
+  .button:active { background: var(--fill-active); }
+  .button svg { width: 16px; height: 16px; flex: none; }
+  .text-link {
+    color: var(--ink); font-size: .875rem; font-weight: 500;
+    text-decoration: underline; text-underline-offset: 4px;
+    text-decoration-color: var(--ink-muted);
+  }
+  .text-link:hover { text-decoration-color: var(--ink); }
+
+  /* ── Hero ─────────────────────────────────────────────────────────── */
+  .hero { padding-block: clamp(56px, 10vw, 120px) clamp(40px, 6vw, 72px); }
+  .hero-copy { max-width: 46rem; }
+  .hero h1 {
+    margin: 0 0 clamp(16px, 2.5vw, 24px);
+    font-size: clamp(2.25rem, 5.4vw, 3.5rem);
+    font-weight: 500; line-height: 1.14; letter-spacing: -.03em;
+  }
+  .hero .lede {
+    margin: 0 0 clamp(24px, 3.5vw, 36px);
+    max-width: 40rem;
+    color: var(--ink-soft);
+    font-size: clamp(1.0625rem, 1.6vw, 1.1875rem);
+  }
+  .hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; }
+  .hero-agents {
+    margin: clamp(20px, 3vw, 28px) 0 0;
+    color: var(--ink-muted); font-size: .8125rem;
+  }
+  .hero-agents code {
+    padding: 2px 6px; background: var(--surface-muted);
+    border-radius: 4px; font-size: .75rem; color: var(--ink-soft);
+  }
+
+  /* ── The ledger figure (the product IS the imagery) ───────────────── */
+  .ledger-frame {
+    margin: clamp(40px, 6vw, 64px) 0 0;
+    border: 1px solid var(--divider);
+    background: var(--surface);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .ledger-caption {
+    display: flex; align-items: center; gap: 10px;
+    min-height: 40px; padding: 0 16px;
+    background: var(--surface-strong);
+    border-bottom: 1px solid var(--divider);
+    color: var(--ink-muted); font-size: .75rem;
+  }
+  .ledger-caption .rec {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--ink); flex: none;
+    animation: rec 2.4s ease-in-out infinite;
+  }
+  @keyframes rec { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+  .ledger-caption .path { margin-left: auto; font-family: var(--mono); font-size: .6875rem; }
+  .ledger-scroll { overflow-x: auto; }
+  .ledger { min-width: 860px; }
+  .ledger-head, .ledger-row {
+    display: grid;
+    grid-template-columns: 58px minmax(240px, 2.2fr) minmax(120px, 1fr) minmax(120px, 1fr) minmax(140px, 1.1fr) 128px;
+    gap: 14px; align-items: center;
+    padding: 0 16px;
+  }
+  .ledger-head {
+    min-height: 38px;
+    color: var(--ink-muted);
+    border-bottom: 1px solid var(--divider-soft);
+    font-size: .6875rem; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
+  }
+  .ledger-row {
+    min-height: 62px; padding-block: 10px;
+    border-bottom: 1px solid var(--divider-soft);
+    font-size: .8125rem; color: var(--ink-soft);
+  }
+  .ledger-row:last-child { border-bottom: 0; }
+  .l-time { color: var(--ink-muted); font-family: var(--mono); font-size: .75rem; }
+  .l-change { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .l-change strong {
+    color: var(--ink); font-size: .84rem; font-weight: 650; line-height: 1.3;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .l-change code {
+    width: fit-content; padding: 1px 5px;
+    color: var(--ink-soft); background: var(--surface-muted);
+    border-radius: 4px; font-size: .6875rem;
+  }
+  .l-author, .l-agent { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .l-author strong, .l-agent strong {
+    color: var(--ink); font-size: .78rem; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .l-author small, .l-agent small {
+    color: var(--ink-muted); font-size: .6875rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .confidence {
+    display: grid; grid-template-columns: 9px 1fr; column-gap: 7px; align-items: center;
+    font-size: .75rem; color: var(--ink-soft);
+  }
+  .confidence i {
+    width: 9px; height: 9px; border: 1px solid currentColor; border-radius: 50%;
+  }
+  .confidence.certain i { background: currentColor; }
+  .confidence small { grid-column: 2; color: var(--ink-muted); font-size: .65rem; }
+  .state {
+    display: inline-flex; align-items: center; gap: 7px;
+    width: fit-content; padding: 5px 10px; border-radius: 999px;
+    font-size: .6875rem; font-weight: 700; white-space: nowrap;
+  }
+  .state i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+  .state.approved { color: var(--approved); background: var(--approved-bg); }
+  .state.reviewed { color: var(--reviewed); background: var(--reviewed-bg); }
+  .state.review   { color: var(--review);   background: var(--review-bg); }
+
+  /* ── Sections ─────────────────────────────────────────────────────── */
+  section { padding-block: clamp(56px, 9vw, 104px); border-top: 1px solid var(--divider); }
+  .section-head { max-width: 44rem; margin-bottom: clamp(32px, 5vw, 56px); }
+  .section-head h2 {
+    margin: 0 0 14px;
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    font-weight: 500; line-height: 1.2; letter-spacing: -.02em;
+  }
+  .section-head p { margin: 0; color: var(--ink-soft); }
+
+  /* How it works — a real sequence, so the numbers are earned */
+  .steps { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--divider); counter-reset: step; }
+  .steps li {
+    display: grid; grid-template-columns: 44px 1fr; gap: clamp(16px, 3vw, 28px);
+    padding: clamp(20px, 3vw, 28px) 0;
+    border-bottom: 1px solid var(--divider-soft);
+    counter-increment: step;
+  }
+  .steps li::before {
+    content: counter(step);
+    display: grid; place-items: center;
+    width: 32px; height: 32px;
+    color: var(--canvas); background: var(--ink);
+    border-radius: 50%; font-size: .8125rem; font-weight: 700;
+  }
+  .steps h3 { margin: 4px 0 6px; font-size: 1.0625rem; font-weight: 650; letter-spacing: -.01em; }
+  .steps p { margin: 0; max-width: 40rem; color: var(--ink-soft); font-size: .9375rem; }
+  .steps p code {
+    padding: 1px 5px; background: var(--surface-muted);
+    border-radius: 4px; font-size: .8125rem; color: var(--ink-soft);
+  }
+
+  /* Attribution — two claims, ruled apart, never blurred */
+  .claims {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    border-top: 1px solid var(--divider);
+  }
+  .claim { padding: clamp(24px, 3.5vw, 36px) 0; border-bottom: 1px solid var(--divider-soft); }
+  .claim + .claim { border-left: none; }
+  @media (min-width: 720px) {
+    .claims { gap: 0 clamp(32px, 5vw, 64px); }
+  }
+  .claim-label {
+    display: inline-grid; grid-template-columns: 10px 1fr; column-gap: 8px; align-items: center;
+    margin-bottom: 14px;
+    font-family: var(--mono); font-size: .8125rem; font-weight: 600; color: var(--ink);
+  }
+  .claim-label i { width: 10px; height: 10px; border: 1px solid currentColor; border-radius: 50%; }
+  .claim-label.certain i { background: currentColor; }
+  .claim p { margin: 0 0 10px; color: var(--ink-soft); font-size: .9375rem; }
+  .claim p:last-child { margin-bottom: 0; }
+  .claim code {
+    padding: 1px 5px; background: var(--surface-muted);
+    border-radius: 4px; font-size: .8125rem; color: var(--ink-soft);
+  }
+  .claims-note { margin: clamp(20px, 3vw, 28px) 0 0; max-width: 44rem; color: var(--ink-muted); font-size: .875rem; }
+
+  /* Principles — what Flagger is not */
+  .nots { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--divider); }
+  .nots li {
+    display: grid; grid-template-columns: minmax(180px, 15rem) 1fr;
+    gap: clamp(16px, 4vw, 48px);
+    padding: clamp(20px, 3vw, 28px) 0;
+    border-bottom: 1px solid var(--divider-soft);
+  }
+  .nots h3 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -.01em; }
+  .nots p { margin: 0; max-width: 42rem; color: var(--ink-soft); font-size: .9375rem; }
+
+  /* ── Closing CTA + footer ─────────────────────────────────────────── */
+  .closing { text-align: center; }
+  .closing h2 {
+    margin: 0 0 16px;
+    font-size: clamp(1.75rem, 4vw, 2.5rem);
+    font-weight: 500; letter-spacing: -.025em; line-height: 1.15;
+  }
+  .closing p { margin: 0 auto 28px; max-width: 34rem; color: var(--ink-soft); }
+  .closing .fine { margin-top: 20px; margin-bottom: 0; color: var(--ink-muted); font-size: .8125rem; }
+
+  footer {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px clamp(16px, 3vw, 28px);
+    min-height: 68px; padding-block: 20px;
+    border-top: 1px solid var(--divider);
+    color: var(--ink-muted); font-size: .8125rem;
+  }
+  footer nav { display: flex; gap: clamp(14px, 2.5vw, 24px); margin-left: auto; }
+  footer a { color: var(--ink-soft); text-decoration: none; }
+  footer a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+
+  /* ── Responsive ───────────────────────────────────────────────────── */
+  @media (max-width: 720px) {
+    .nav-links a:not(.button) { display: none; }
+    .nots li { grid-template-columns: 1fr; gap: 8px; }
+  }
+  @media (pointer: coarse) {
+    .button { min-height: 46px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .ledger-caption .rec { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="shell">
+  <div class="nav">
+    <a class="wordmark" href="/">Flagger</a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="#how">How it works</a>
+      <a href="#attribution">Attribution</a>
+      <a href="#principles">Principles</a>
+      <a href="/app">Sign in</a>
+      <a class="button" href="/app/connect">Connect GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main class="shell">
+
+  <!-- ── Hero ── -->
+  <section class="hero" style="border-top: 0;">
+    <div class="hero-copy">
+      <h1>The audit trail for AI&#8209;written code.</h1>
+      <p class="lede">
+        Everything AI touched in your repos: ordered, traceable, in one place.
+        Flagger records every commit your coding agents author: who wrote it, how
+        confident that attribution is, and how much human review it received.
+      </p>
+      <div class="hero-actions">
+        <a class="button" href="/app/connect">
+          <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+          Connect GitHub
+        </a>
+        <a class="text-link" href="#attribution">How attribution works</a>
+      </div>
+      <p class="hero-agents">
+        No CLI. No config file. Nothing for your developers to install.
+        Tracks <code>Claude Code</code> <code>Codex</code> <code>Devin</code> <code>Aider</code> today.
+      </p>
+    </div>
+
+    <figure class="ledger-frame" role="img"
+      aria-label="Example Flagger activity ledger: five commits attributed to Claude Code, Devin, Codex, and Aider, each labeled with certain or suspected attribution confidence and its review state.">
+      <div aria-hidden="true">
+        <div class="ledger-caption">
+          <span class="rec"></span>
+          <span>activity — all repositories</span>
+          <span class="path">refs/notes/ai · webhooks</span>
+        </div>
+        <div class="ledger-scroll"><div class="ledger">
+          <div class="ledger-head">
+            <span>Time</span><span>Change</span><span>Author</span><span>Agent</span><span>Confidence</span><span>Review</span>
+          </div>
+          <div class="ledger-row">
+            <span class="l-time">14:32</span>
+            <span class="l-change"><strong>Add retry and backoff to webhook client</strong><code>a41c9f2 · api</code></span>
+            <span class="l-author"><strong>m.okafor</strong><small>platform</small></span>
+            <span class="l-agent"><strong>Claude Code</strong><small>opus-4-8</small></span>
+            <span class="confidence certain"><i></i>certain<small>git-ai notes</small></span>
+            <span class="state approved"><i></i>Approved</span>
+          </div>
+          <div class="ledger-row">
+            <span class="l-time">14:17</span>
+            <span class="l-change"><strong>Migrate billing cron to async worker</strong><code>7de03b1 · billing</code></span>
+            <span class="l-author"><strong>devin-ai-integration[bot]</strong><small>autonomous run</small></span>
+            <span class="l-agent"><strong>Devin</strong><small>bot account</small></span>
+            <span class="confidence certain"><i></i>certain<small>bot identity</small></span>
+            <span class="state review"><i></i>Needs review</span>
+          </div>
+          <div class="ledger-row">
+            <span class="l-time">13:58</span>
+            <span class="l-change"><strong>Refactor session cache eviction policy</strong><code>c92f480 · api</code></span>
+            <span class="l-author"><strong>j.laurent</strong><small>backend</small></span>
+            <span class="l-agent"><strong>Codex</strong><small>co-author trailer</small></span>
+            <span class="confidence"><i></i>suspected<small>heuristic</small></span>
+            <span class="state reviewed"><i></i>Reviewed</span>
+          </div>
+          <div class="ledger-row">
+            <span class="l-time">13:41</span>
+            <span class="l-change"><strong>Fix timezone handling in report export</strong><code>08b3d17 · reports</code></span>
+            <span class="l-author"><strong>s.brandt</strong><small>data</small></span>
+            <span class="l-agent"><strong>Aider</strong><small>commit trailer</small></span>
+            <span class="confidence certain"><i></i>certain<small>git-ai notes</small></span>
+            <span class="state approved"><i></i>Approved</span>
+          </div>
+          <div class="ledger-row">
+            <span class="l-time">13:22</span>
+            <span class="l-change"><strong>Bump dependencies, regenerate lockfile</strong><code>f6e21aa · api</code></span>
+            <span class="l-author"><strong>j.laurent</strong><small>backend</small></span>
+            <span class="l-agent"><strong>Unknown</strong><small>pattern match</small></span>
+            <span class="confidence"><i></i>suspected<small>heuristic</small></span>
+            <span class="state review"><i></i>Needs review</span>
+          </div>
+        </div></div>
+      </div>
+    </figure>
+  </section>
+
+  <!-- ── How it works ── -->
+  <section id="how">
+    <div class="section-head">
+      <h2>One install. Whole-org visibility.</h2>
+      <p>
+        Competing tools ask every developer to wrap their Git workflow in a CLI.
+        Flagger connects at the repository level, once, and starts recording immediately.
+      </p>
+    </div>
+    <ol class="steps">
+      <li>
+        <div>
+          <h3>Install the GitHub App</h3>
+          <p>Pick the organizations and repositories you want on the record. That's the
+          whole setup: no per-developer tooling, no workflow changes, no agent SDKs.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Activity flows in over webhooks</h3>
+          <p>Pushes, pull requests, reviews, and CI runs are ingested as they happen.
+          Every commit is attributed at ingestion and re-evaluated as review and CI
+          evidence arrives, so a commit's record reflects what actually happened to it.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>Read the ledger</h3>
+          <p>One feed across every repo and contributor: what agents wrote, the diff,
+          the review it got, and the signals that make a change worth a second look,
+          like unreviewed pushes to <code>main</code>, large diffs nobody read, and
+          sensitive paths.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <!-- ── Attribution ── -->
+  <section id="attribution">
+    <div class="section-head">
+      <h2>Certain or suspected. Never blurred.</h2>
+      <p>
+        Attribution is a claim about who wrote your code, so Flagger tells you which
+        kind of claim it's making, on every single commit.
+      </p>
+    </div>
+    <div class="claims">
+      <div class="claim">
+        <span class="claim-label certain"><i aria-hidden="true"></i>certain</span>
+        <p>Read directly from the evidence. If a repo writes <code>git-ai</code> notes at
+        <code>refs/notes/ai</code>, Flagger uses them as its highest-confidence source,
+        agent and model included. Commits pushed by a known agent's own bot account
+        (<code>devin-ai-integration[bot]</code>) are attributed the same way.</p>
+      </div>
+      <div class="claim">
+        <span class="claim-label"><i aria-hidden="true"></i>suspected</span>
+        <p>Inferred from heuristics: <code>Co-authored-by</code> trailers naming a known
+        agent, commit-message patterns, authorship signals. Useful, and labeled as
+        exactly what it is. A heuristic match is never dressed up as a fact.</p>
+      </div>
+    </div>
+    <p class="claims-note">
+      Already using <code>git-ai</code>? Flagger reads its data format natively, as a
+      complementary source rather than a competitor. Where it isn't present, heuristics
+      fill in, honestly labeled.
+    </p>
+  </section>
+
+  <!-- ── Principles ── -->
+  <section id="principles">
+    <div class="section-head">
+      <h2>What Flagger is not.</h2>
+      <p>An audit trail is only as good as its honesty, including about itself.</p>
+    </div>
+    <ul class="nots">
+      <li>
+        <h3>Not a code reviewer</h3>
+        <p>Flagger doesn't judge whether code is good; that's your review process's job.
+        It records where code came from and how much human oversight it got. Provenance
+        and process, not quality scores.</p>
+      </li>
+      <li>
+        <h3>Not a scoreboard</h3>
+        <p>No streaks, no leaderboards, no per-developer adoption scores. The moment AI
+        usage becomes a metric, it becomes a game. Flagger measures activity, not people.</p>
+      </li>
+      <li>
+        <h3>Not an alarm wall</h3>
+        <p>Risk signals in v1 are simple, transparent flags: no review, unclean CI,
+        sensitive paths, large unreviewed diffs, direct pushes to main. You can see
+        exactly why each one fired. No opaque scores, no unvalidated ML dressed as fact.</p>
+      </li>
+      <li>
+        <h3>Not a data silo</h3>
+        <p>Every row links back to the commit, diff, PR, and review on GitHub. The ledger
+        survives app removal, because an audit trail that disappears when you uninstall
+        isn't an audit trail.</p>
+      </li>
+    </ul>
+  </section>
+
+  <!-- ── Closing ── -->
+  <section class="closing">
+    <h2>Start the record.</h2>
+    <p>
+      Install the GitHub App on one repo and watch the ledger populate from the next
+      push. Expand to the whole org when you're ready.
+    </p>
+    <a class="button" href="/app/connect">
+      <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      Connect GitHub
+    </a>
+    <p class="fine">Installs in about two minutes. Read-only access. History survives uninstall.</p>
+  </section>
+
+</main>
+
+<div class="shell">
+  <footer>
+    <span>Flagger © 2026</span>
+    <nav aria-label="Footer">
+      <a href="#how">How it works</a>
+      <a href="#attribution">Attribution</a>
+      <a href="/app">Sign in</a>
+      <a href="https://github.com">GitHub</a>
+    </nav>
+  </footer>
+</div>
+
+</body>
+</html>

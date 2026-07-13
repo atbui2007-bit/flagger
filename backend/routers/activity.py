@@ -1,4 +1,5 @@
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
@@ -75,6 +76,12 @@ async def get_activity_recent(
     clauses, params = activity_filters(user, repository, contributor, agent, risk, confidence, search)
 
     if cursor:
+        try:
+            UUID(cursor)
+        except ValueError:
+            # Malformed cursor: ignore it (first page), same as unknown ids below.
+            cursor = None
+    if cursor:
         lookup = text("SELECT pushed_at FROM commits WHERE id = :cursor_id")
         result = await session.execute(lookup, {"cursor_id": cursor})
         cursor_timestamp = result.scalar()
@@ -86,9 +93,10 @@ async def get_activity_recent(
     params["limit"] = limit + 1
 
     query = text(f"""
-        SELECT commits.*, repos.full_name, repos.owner
+        SELECT commits.*, repos.full_name, repos.owner, pull_requests.github_pr_number AS pr_number
         FROM commits
         JOIN repos ON commits.repo_id = repos.id
+        LEFT JOIN pull_requests ON commits.pull_request_id = pull_requests.id
         {where_clause}
         ORDER BY commits.pushed_at DESC, commits.id DESC
         LIMIT :limit

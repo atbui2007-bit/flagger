@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchJson } from '../lib/api'
 
@@ -24,6 +24,7 @@ interface Commit {
   full_name: string
   pushed_at: string
   git_ai_model?: string | null
+  pr_number?: number | null
 }
 
 interface ActivityResponse {
@@ -194,6 +195,10 @@ function dateGroup(value: string) {
   return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric' }).format(date)
 }
 
+function firstLine(message: string) {
+  return message.split('\n')[0]
+}
+
 function formatTime(value: string) {
   return new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit' }).format(new Date(value))
 }
@@ -256,6 +261,7 @@ function EvidenceInspector({ commit, onClose }: { commit: Commit; onClose: () =>
       <section className="evidence-section evidence-links">
         <h3>Links</h3>
         <a href={commit.url} target="_blank" rel="noreferrer">View commit <span aria-hidden="true">↗</span></a>
+        {commit.pr_number != null && <a href={`#/repos/${commit.full_name}/pr/${commit.pr_number}`}>View pull request <span aria-hidden="true">→</span></a>}
       </section>
     </aside>
   )
@@ -289,30 +295,33 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
     queryFn: () => fetchJson('/activity/facets'),
   })
 
+  useEffect(() => {
+    setCursor(null)
+    setCursorHistory([])
+  }, [filters])
+
   const groups = useMemo(() => {
     const commits = [...(activity.data?.data ?? [])]
-    if (sortMode === 'priority') {
-      commits.sort((a, b) => {
-        const priority = reviewPriority(b) - reviewPriority(a)
-        if (priority !== 0) return priority
-        return new Date(b.pushed_at).getTime() - new Date(a.pushed_at).getTime()
-      })
-    } else {
-      commits.sort((a, b) => new Date(b.pushed_at).getTime() - new Date(a.pushed_at).getTime())
-    }
+    commits.sort((a, b) => new Date(b.pushed_at).getTime() - new Date(a.pushed_at).getTime())
 
     const result = new Map<string, Commit[]>()
     commits.forEach((commit) => {
       const group = dateGroup(commit.pushed_at)
       result.set(group, [...(result.get(group) || []), commit])
     })
+
+    if (sortMode === 'priority') {
+      result.forEach((group) => group.sort((a, b) => {
+        const priority = reviewPriority(b) - reviewPriority(a)
+        if (priority !== 0) return priority
+        return new Date(b.pushed_at).getTime() - new Date(a.pushed_at).getTime()
+      }))
+    }
     return [...result.entries()]
   }, [activity.data, sortMode])
 
   function updateFilter(key: keyof Filters, value: string) {
     setFilters((current) => ({ ...current, [key]: value }))
-    setCursor(null)
-    setCursorHistory([])
   }
 
   function inspectAgent(agent: string) {
@@ -320,11 +329,12 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
     onNavigateActivity()
   }
 
-  const summaryAiShare = summary.isPending ? null : summary.data?.ai_share_percent ?? 0
-  const summaryReviewNeeded = summary.isPending ? null : summary.data?.review_needed ?? 0
-  const summaryTotalCommits = summary.isPending ? null : summary.data?.total_commits ?? 0
-  const summaryRepositories = summary.isPending ? null : summary.data?.repositories ?? 0
-  const summaryAgentCommits = summary.isPending ? null : summary.data?.ai_authored_commits ?? 0
+  const summaryReady = !summary.isPending && !summary.isError
+  const summaryAiShare = summary.data?.ai_share_percent ?? 0
+  const summaryReviewNeeded = summary.data?.review_needed ?? 0
+  const summaryTotalCommits = summary.data?.total_commits ?? 0
+  const summaryRepositories = summary.data?.repositories ?? 0
+  const summaryAgentCommits = summary.data?.ai_authored_commits ?? 0
   const activityErrorMessage = activity.error instanceof Error ? activity.error.message : 'Unknown error'
 
   return (
@@ -342,19 +352,19 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
           </div>
         </button>
         <div className="summary-primary">
-          <button type="button" className="stat-chip" data-populated={!summary.isPending && summaryAiShare > 0} onClick={() => setSummaryExpanded(true)}>
+          <button type="button" className="stat-chip" data-populated={summaryReady && summaryAiShare > 0} onClick={() => setSummaryExpanded(true)}>
             <span className="stat-chip-icon" aria-hidden="true">✦</span>
-            <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : `${summaryAiShare}%`}</strong>
+            <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summary.isError ? '—' : `${summaryAiShare}%`}</strong>
             <span>AI-authored</span>
           </button>
-          <button type="button" className="stat-chip" data-populated={!summary.isPending && summaryReviewNeeded > 0} onClick={() => setSummaryExpanded(true)}>
+          <button type="button" className="stat-chip" data-populated={summaryReady && summaryReviewNeeded > 0} onClick={() => setSummaryExpanded(true)}>
             <span className="stat-chip-icon" aria-hidden="true">⚑</span>
-            <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summaryReviewNeeded}</strong>
+            <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summary.isError ? '—' : summaryReviewNeeded}</strong>
             <span>Needs review</span>
           </button>
-          <button type="button" className="stat-chip" data-populated={!summary.isPending && summaryTotalCommits > 0} onClick={() => setSummaryExpanded(true)}>
+          <button type="button" className="stat-chip" data-populated={summaryReady && summaryTotalCommits > 0} onClick={() => setSummaryExpanded(true)}>
             <span className="stat-chip-icon" aria-hidden="true">⟲</span>
-            <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summaryTotalCommits}</strong>
+            <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summary.isError ? '—' : summaryTotalCommits}</strong>
             <span>Commits</span>
           </button>
         </div>
@@ -401,15 +411,6 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
             <div className="ledger-head" role="row">
               <span role="columnheader">Time</span><span role="columnheader">Change</span><span role="columnheader">Repository / branch</span><span role="columnheader">Author / agent</span><span role="columnheader">Confidence</span><span role="columnheader">Changes</span><span role="columnheader">State</span>
             </div>
-            {activity.isPending && (
-              <div className="state-card state-card-loading">
-                <div className="state-card-icon" aria-hidden="true">◌</div>
-                <div className="state-card-copy">
-                  <strong>Loading activity…</strong>
-                  <span>Fetching the latest review signals and commit history.</span>
-                </div>
-              </div>
-            )}
             {activity.isPending && <ActivitySkeleton />}
             {activity.isError && (
               <div className="state-card state-card-error">
@@ -436,13 +437,12 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
               <section className="ledger-group" key={group} aria-label={group}>
                 <h2>{group}</h2>
                 {commits.map((commit) => {
-                  const state = reviewState(commit)
                   const confidence = confidenceLabel(commit.attribution_confidence)
                   return (
-                    <div className={`ledger-row${selected?.id === commit.id ? ' selected' : ''}`} role="row" tabIndex={0} key={commit.id} onClick={() => setSelected(commit)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelected(commit) } }} aria-label={`Inspect ${commit.message}`}>
+                    <div className={`ledger-row${selected?.id === commit.id ? ' selected' : ''}`} role="row" tabIndex={0} key={commit.id} onClick={() => setSelected(commit)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelected(commit) } }} aria-label={`Inspect ${firstLine(commit.message)}`}>
                       <span className="row-time" role="cell">{formatTime(commit.pushed_at)}</span>
                       <span className="row-change" role="cell">
-                        <strong>{commit.message}</strong>
+                        <strong>{firstLine(commit.message)}</strong>
                         <code>{commit.short_sha}</code>
                         <span className="reason-chips" aria-label={`Review reasons for ${commit.short_sha}`}>
                           {buildReasonChips(commit).slice(0, 2).map((reason) => <span key={reason} className="reason-chip">{reason}</span>)}
