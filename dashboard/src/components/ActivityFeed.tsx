@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchJson } from '../lib/api'
 
@@ -211,7 +211,7 @@ function ActivitySkeleton() {
   )
 }
 
-function EvidenceInspector({ commit, onClose }: { commit: Commit; onClose: () => void }) {
+function EvidenceInspector({ commit, closing, onClose, onExitComplete }: { commit: Commit; closing: boolean; onClose: () => void; onExitComplete: () => void }) {
   const signals = [
     [commit.risk_no_review, 'No review recorded'],
     [commit.risk_ci_unclean, 'CI is not clean'],
@@ -221,6 +221,7 @@ function EvidenceInspector({ commit, onClose }: { commit: Commit; onClose: () =>
   ].filter(([active]) => active)
 
   return (
+    <div className={`evidence-motion${closing ? ' closing' : ''}`} onAnimationEnd={(event) => { if (closing && event.animationName === 'evidence-exit') onExitComplete() }}>
     <aside className="evidence" aria-label="Commit evidence">
       <header className="evidence-header">
         <h2>Evidence</h2>
@@ -264,6 +265,7 @@ function EvidenceInspector({ commit, onClose }: { commit: Commit; onClose: () =>
         {commit.pr_number != null && <a href={`#/repos/${commit.full_name}/pr/${commit.pr_number}`}>View pull request <span aria-hidden="true">→</span></a>}
       </section>
     </aside>
+    </div>
   )
 }
 
@@ -276,11 +278,25 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
   const [cursor, setCursor] = useState<string | null>(null)
   const [cursorHistory, setCursorHistory] = useState<Array<string | null>>([])
   const [selected, setSelected] = useState<Commit | null>(null)
+  const [inspectorClosing, setInspectorClosing] = useState(false)
+  const inspectorCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const entranceCommitIds = useRef<Set<string>>(new Set())
+  const entranceConsumed = useRef(false)
+  const entranceFirstPage = useRef<ActivityResponse | null>(null)
+  const entranceViewKey = useRef('')
+  const entranceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [entranceActive, setEntranceActive] = useState(false)
   const [summaryExpanded, setSummaryExpanded] = useState(false)
-  const [insightOpen, setInsightOpen] = useState(false)
   const [sortMode, setSortMode] = useState<'priority' | 'recent'>('priority')
+  const [greeting] = useState(() => {
+    const hour = new Date().getHours()
+    if (hour < 12) return 'Good morning.'
+    if (hour < 18) return 'Good afternoon.'
+    return 'Good evening.'
+  })
   const deferredSearch = useDeferredValue(filters.search)
   const queryFilters = { ...filters, search: deferredSearch }
+  const currentViewKey = `${queryString(queryFilters, cursor)}|sort=${sortMode}`
 
   const activity = useQuery<ActivityResponse>({
     queryKey: ['activity', queryFilters, cursor],
@@ -299,6 +315,49 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
     setCursor(null)
     setCursorHistory([])
   }, [filters])
+
+  useEffect(() => {
+    if (!activity.isSuccess || !activity.data) return
+    if (!entranceConsumed.current) {
+      entranceConsumed.current = true
+      entranceFirstPage.current = activity.data
+      entranceViewKey.current = currentViewKey
+      entranceCommitIds.current = new Set(activity.data.data.map((commit) => commit.id))
+      setEntranceActive(true)
+      entranceTimer.current = setTimeout(() => setEntranceActive(false), 800)
+      return
+    }
+    if (entranceActive && activity.data !== entranceFirstPage.current) setEntranceActive(false)
+  }, [activity.data, activity.isSuccess, currentViewKey, entranceActive])
+
+  useEffect(() => {
+    if (entranceActive && entranceConsumed.current && currentViewKey !== entranceViewKey.current) setEntranceActive(false)
+  }, [currentViewKey, entranceActive])
+
+  useEffect(() => () => {
+    if (entranceTimer.current) clearTimeout(entranceTimer.current)
+    if (inspectorCloseTimer.current) clearTimeout(inspectorCloseTimer.current)
+  }, [])
+
+  const finishInspectorClose = useCallback(() => {
+    if (inspectorCloseTimer.current) clearTimeout(inspectorCloseTimer.current)
+    inspectorCloseTimer.current = null
+    setInspectorClosing(false)
+    setSelected(null)
+  }, [])
+
+  function closeInspector() {
+    if (inspectorClosing) return
+    setInspectorClosing(true)
+    inspectorCloseTimer.current = setTimeout(finishInspectorClose, 200)
+  }
+
+  function selectCommit(commit: Commit) {
+    if (inspectorCloseTimer.current) clearTimeout(inspectorCloseTimer.current)
+    inspectorCloseTimer.current = null
+    setInspectorClosing(false)
+    setSelected(commit)
+  }
 
   const groups = useMemo(() => {
     const commits = [...(activity.data?.data ?? [])]
@@ -319,6 +378,12 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
     }
     return [...result.entries()]
   }, [activity.data, sortMode])
+  const globalRowIndexes = useMemo(() => {
+    const indexes = new Map<string, number>()
+    let index = 0
+    groups.forEach(([, commits]) => commits.forEach((commit) => indexes.set(commit.id, index++)))
+    return indexes
+  }, [groups])
 
   function updateFilter(key: keyof Filters, value: string) {
     setFilters((current) => ({ ...current, [key]: value }))
@@ -336,61 +401,56 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
   const summaryRepositories = summary.data?.repositories ?? 0
   const summaryAgentCommits = summary.data?.ai_authored_commits ?? 0
   const activityErrorMessage = activity.error instanceof Error ? activity.error.message : 'Unknown error'
+  let leadSentence = `${greeting} Loading review summary…`
+  if (summary.isError) {
+    leadSentence = `${greeting} Review summary unavailable. AI-authored changes across connected repositories.`
+  } else if (summary.isSuccess && !summary.isFetching && summary.data) {
+    const { review_needed: reviewNeeded, repositories } = summary.data
+    if (reviewNeeded > 0) {
+      leadSentence = `${greeting} ${reviewNeeded} ${reviewNeeded === 1 ? 'change needs' : 'changes need'} review in this view of ${repositories} ${repositories === 1 ? 'repository' : 'repositories'}.`
+    } else if (reviewNeeded === 0) {
+      leadSentence = `${greeting} No current changes match Flagger's review-needed signals.`
+    }
+  }
 
   return (
     <>
-      {view === 'activity' && <section className="summary" aria-label="Activity summary">
-        <button type="button" className={`summary-visual${insightOpen ? ' insight-open' : ''}`} onClick={() => setInsightOpen((value) => !value)} onMouseEnter={() => setInsightOpen(true)} onMouseLeave={() => setInsightOpen(false)} aria-expanded={insightOpen}>
-          <div className="summary-chart" aria-hidden="true">
-            {[44, 68, 56, 82, 64, 90].map((height, index) => (
-              <span key={index} style={{ height: `${height}%`, animationDelay: `${index * 0.1}s` }} />
-            ))}
-          </div>
-          <div className="summary-visual-copy">
-            <strong>Velocity</strong>
-            <span>{summary.isPending ? 'Measuring recent delivery patterns…' : 'Signals from review load, commit volume, and AI share'}</span>
-          </div>
-        </button>
-        <div className="summary-primary">
-          <button type="button" className="stat-chip" data-populated={summaryReady && summaryAiShare > 0} onClick={() => setSummaryExpanded(true)}>
-            <span className="stat-chip-icon" aria-hidden="true">✦</span>
-            <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summary.isError ? '—' : `${summaryAiShare}%`}</strong>
-            <span>AI-authored</span>
-          </button>
-          <button type="button" className="stat-chip" data-populated={summaryReady && summaryReviewNeeded > 0} onClick={() => setSummaryExpanded(true)}>
-            <span className="stat-chip-icon" aria-hidden="true">⚑</span>
-            <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summary.isError ? '—' : summaryReviewNeeded}</strong>
-            <span>Needs review</span>
-          </button>
-          <button type="button" className="stat-chip" data-populated={summaryReady && summaryTotalCommits > 0} onClick={() => setSummaryExpanded(true)}>
-            <span className="stat-chip-icon" aria-hidden="true">⟲</span>
-            <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summary.isError ? '—' : summaryTotalCommits}</strong>
-            <span>Commits</span>
-          </button>
-        </div>
-        {summaryExpanded && (
-          <div className="summary-secondary">
-            <span>{summaryRepositories} repositories</span>
-            <span>{summaryAgentCommits} agent commits</span>
-          </div>
-        )}
-        {insightOpen && (
-          <div className="summary-insight" role="dialog" aria-label="Velocity explanation">
-            <strong>What this gauges</strong>
-            <p>Velocity is a lightweight signal derived from recent commit volume, review backlog, and how much of the work appears AI-authored. It is meant to highlight momentum and coordination pressure, not to declare success.</p>
-            <small>Hover or click the panel to reopen this explanation whenever you need context.</small>
-          </div>
-        )}
-        <button className="summary-toggle" onClick={() => setSummaryExpanded((value) => !value)} aria-expanded={summaryExpanded}>
-          {summaryExpanded ? 'Fewer details' : 'More details'} <span aria-hidden="true">⌄</span>
-        </button>
-      </section>}
-
       {view === 'agents' ? <AgentBreakdown onInspect={inspectAgent} /> : <main className={`workspace${selected ? ' has-inspector' : ''}`} id="activity">
         <section className="activity-pane" aria-labelledby="activity-title">
+          <div className="activity-frame">
           <div className="activity-heading">
-            <div><h1 id="activity-title">Activity</h1><p>AI-authored changes across connected repositories</p></div>
-            {selected && <span className="update-status" aria-live="polite">Updates paused while reviewing</span>}
+            <div><h1 id="activity-title">Activity</h1><p>{leadSentence}</p></div>
+            <div className="heading-side">
+              <div className="summary-strip" aria-label="Activity summary">
+                {summary.isSuccess && summaryReviewNeeded === 0 ? (
+                  <span className="strip-stat all-clear" title="No current changes match Flagger's review-needed signals." aria-label="No current changes match Flagger's review-needed signals.">✓ All clear in this view</span>
+                ) : (
+                  <span className={`strip-stat${summary.isSuccess && summaryReviewNeeded > 0 ? ' needs-review' : ''}`} data-populated={summaryReady && summaryReviewNeeded > 0}>
+                    <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summary.isError ? '—' : summaryReviewNeeded}</strong> need review
+                  </span>
+                )}
+                <span aria-hidden="true">·</span>
+                <span className="strip-stat" data-populated={summaryReady && summaryAiShare > 0}>
+                  <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summary.isError ? '—' : `${summaryAiShare}%`}</strong> AI-authored
+                </span>
+                <span aria-hidden="true">·</span>
+                <span className="strip-stat" data-populated={summaryReady && summaryTotalCommits > 0}>
+                  <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summary.isError ? '—' : summaryTotalCommits}</strong> commits
+                </span>
+                {summaryExpanded && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span className="strip-stat">{summaryRepositories} repositories</span>
+                    <span aria-hidden="true">·</span>
+                    <span className="strip-stat">{summaryAgentCommits} agent commits</span>
+                  </>
+                )}
+                <button className="strip-more" onClick={() => setSummaryExpanded((value) => !value)} aria-expanded={summaryExpanded}>
+                  {summaryExpanded ? 'Less' : 'More'}
+                </button>
+              </div>
+              {selected && <span className="update-status" aria-live="polite">Updates paused while reviewing</span>}
+            </div>
           </div>
 
           <div className="filters" aria-label="Activity filters">
@@ -401,13 +461,15 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
             <label className="filter-pill"><span className="sr-only">Confidence</span><select value={filters.confidence} onChange={(e) => updateFilter('confidence', e.target.value)}><option value="">Any confidence</option><option value="high">High confidence</option><option value="medium">Medium confidence</option><option value="low">Low confidence</option></select></label>
           </div>
 
-          <div className="filter-hint">
-            <span>Review queue default: sorted by risk and confidence so the highest-priority items surface first.</span>
-            <button type="button" className={`queue-button${sortMode === 'priority' ? ' active' : ''}`} onClick={() => setSortMode('priority')}>Review queue</button>
-            <button type="button" className={`queue-button${sortMode === 'recent' ? ' active' : ''}`} onClick={() => setSortMode('recent')}>Latest first</button>
-          </div>
-
           <div className="ledger" role="table" aria-label="Commit activity">
+            <div className="ledger-toolbar">
+              <span>{sortMode === 'priority' ? 'Riskiest changes first within each day.' : 'Newest changes first within each day.'}</span>
+              <div className="ledger-sort">
+                <span>Sort</span>
+                <button type="button" className={`queue-button${sortMode === 'priority' ? ' active' : ''}`} onClick={() => setSortMode('priority')}>Review queue</button>
+                <button type="button" className={`queue-button${sortMode === 'recent' ? ' active' : ''}`} onClick={() => setSortMode('recent')}>Latest first</button>
+              </div>
+            </div>
             <div className="ledger-head" role="row">
               <span role="columnheader">Time</span><span role="columnheader">Change</span><span role="columnheader">Repository / branch</span><span role="columnheader">Author / agent</span><span role="columnheader">Confidence</span><span role="columnheader">Changes</span><span role="columnheader">State</span>
             </div>
@@ -434,12 +496,13 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
               </div>
             )}
             {groups.map(([group, commits]) => (
-              <section className="ledger-group" key={group} aria-label={group}>
-                <h2>{group}</h2>
+              <section className="ledger-group" key={group} aria-label={`${group} · ${commits.length} ${commits.length === 1 ? 'change' : 'changes'}`}>
+                <h2>{group}<span className="ledger-group-count">· {commits.length} {commits.length === 1 ? 'change' : 'changes'}</span></h2>
                 {commits.map((commit) => {
                   const confidence = confidenceLabel(commit.attribution_confidence)
+                  const enterOnce = entranceActive && entranceCommitIds.current.has(commit.id)
                   return (
-                    <div className={`ledger-row${selected?.id === commit.id ? ' selected' : ''}`} role="row" tabIndex={0} key={commit.id} onClick={() => setSelected(commit)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelected(commit) } }} aria-label={`Inspect ${firstLine(commit.message)}`}>
+                    <div className={`ledger-row${selected?.id === commit.id ? ' selected' : ''}${enterOnce ? ' enter-once' : ''}`} style={enterOnce ? { '--i': Math.min(globalRowIndexes.get(commit.id) ?? 0, 9) } as React.CSSProperties : undefined} role="row" tabIndex={0} key={commit.id} onClick={() => selectCommit(commit)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectCommit(commit) } }} aria-label={`Inspect ${firstLine(commit.message)}`}>
                       <span className="row-time" role="cell">{formatTime(commit.pushed_at)}</span>
                       <span className="row-change" role="cell">
                         <strong>{firstLine(commit.message)}</strong>
@@ -460,8 +523,9 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
             ))}
           </div>
           {(activity.data?.has_more || cursorHistory.length > 0) && <footer className="pagination"><span>Showing {activity.data?.data.length ?? 0} changes</span><div>{cursorHistory.length > 0 && <button className="secondary-button" onClick={() => { const previous = cursorHistory[cursorHistory.length - 1] ?? null; setCursor(previous); setCursorHistory((history) => history.slice(0, -1)) }}>Previous</button>}{activity.data?.has_more && <button onClick={() => { setCursorHistory((history) => [...history, cursor]); setCursor(activity.data?.next_cursor || null) }}>Next page</button>}</div></footer>}
+          </div>
         </section>
-        {selected && <EvidenceInspector commit={selected} onClose={() => setSelected(null)} />}
+        {selected && <EvidenceInspector commit={selected} closing={inspectorClosing} onClose={closeInspector} onExitComplete={finishInspectorClose} />}
       </main>}
     </>
   )
