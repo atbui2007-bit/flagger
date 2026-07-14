@@ -31,10 +31,11 @@ export default function App() {
   useEffect(() => { const label = route.name === 'pr' ? `Pull request #${route.number}` : route.name[0].toUpperCase() + route.name.slice(1); document.title = `${label} — Flagger` }, [route])
   const updateSearch = (value: string) => { setFilters((current) => ({ ...current, search: value })); if (route.name !== 'activity') navigate('/') }
   const viewRepository = (repository: string) => { setFilters((current) => ({ ...current, repository })); navigate('/') }
-  if (route.name === 'login') return <Login onContinue={() => navigate('/')} />
+  const routeKey = route.name === 'pr' ? `${route.name}-${route.number}` : route.name
+  if (route.name === 'login') return <div className="route-view" key={routeKey}><Login onContinue={() => navigate('/')} /></div>
   return <div className="app-shell">
     <aside className="sidebar">
-      <a className="brand" href="#/" aria-label="Flagger activity">Flagger</a>
+      <a className="brand" href="#/" aria-label="Flagger activity"><span className="brand-mark" aria-hidden="true"><i className="brand-dot brand-dot-blue" /><i className="brand-dot brand-dot-violet" /><i className="brand-dot brand-dot-cyan" /></span><span>Flagger</span></a>
       <label className="global-search"><span aria-hidden="true">⌕</span><input type="search" value={filters.search} onChange={(event) => updateSearch(event.target.value)} placeholder="Search activity" aria-label="Search activity" /></label>
       <nav aria-label="Primary navigation">
         {([['activity','Activity'],['repositories','Repositories'],['agents','Agents'],['settings','Settings']] as const).map(([name, label]) => <a key={name} className={route.name === name ? 'active' : ''} href={`#/${name}`}>{label}</a>)}
@@ -42,10 +43,12 @@ export default function App() {
       <button type="button" className="icon-button theme-toggle" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>{theme === 'dark' ? '☀' : '☾'}</button>
     </aside>
     <div className="content">
+      <div className="route-view" key={routeKey}>
       {(route.name === 'activity' || route.name === 'agents') && <ActivityFeed view={route.name} filters={filters} setFilters={setFilters} onNavigateActivity={() => navigate('/')} />}
       {route.name === 'repositories' && <Repositories onView={viewRepository} />}
       {route.name === 'settings' && <Settings />}{route.name === 'connect' && <Connect />}
       {route.name === 'pr' && <PullRequestDetail owner={route.owner} name={route.repository} number={route.number} />}
+      </div>
     </div>
   </div>
 }

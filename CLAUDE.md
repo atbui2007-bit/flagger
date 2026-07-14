@@ -7,6 +7,8 @@ Treat the conventions below as deliberate, not default scaffolding to "clean up.
 
 ---
 
+If the Codex Plugin is installed, implement code with codex and consult with Codex 5.6 Sol on the task at hand.
+
 ## 1. What Flagger Is
 
 Flagger is an **audit-trail SaaS product** for engineering teams adopting AI coding
@@ -31,13 +33,21 @@ view of AI-authored activity, with budget authority.
 **Secondary users:** individual developers reviewing their own agent activity — the same
 feed, scoped with a contributor filter. There is one view, not two products.
 
-**Brand/product feel** (see `DESIGN.md` for full tokens): "The Ledger Under Glass" —
-a dark-first, dense, forensic ledger read through quiet glass chrome. Linear's
-information density, GitHub's familiarity with SHAs/branches/diffs; frosted-glass
-treatment on the chrome only (topbar, summary bar, Evidence Inspector, overlays) over
-a near-black canvas with two fixed aurora glows. Explicitly not a Datadog/Splunk-style
-observability wall, no gamification, no color-only risk signals, no feed reflow on
-live updates, no animated backgrounds.
+**Brand/product feel** (see `DESIGN.md` for full tokens): "The Ledger Under Glass",
+glass-forward — a dark-first, polished, premium ledger that lives inside frosted
+glass. Every container (ledger shell, tables, filters, cards, Evidence Inspector,
+login) is a rounded glass panel over a composed wallpaper-grade gradient canvas
+(three cool fields, off-edge cores, quiet center, debanding grain); dense data rows
+sit on a high-opacity tint inside the glass so evidence stays
+crisp (blur belongs to panel shells only, never rows, never nested). All data and
+columns stay — premium comes from material and spacing, not from hiding information.
+GitHub's familiarity with SHAs/branches/diffs remains. A minimal motion system
+(feedback micro-interactions, once-per-mount entrance stagger, quiet route fades) and
+an almost-imperceptibly drifting canvas (transform-only, ≥100s cycles,
+frozen under reduced motion) keep it from feeling flat — see DESIGN.md §5 Motion.
+Explicitly not a Datadog/Splunk-style observability wall, no gamification, no
+color-only risk signals, no feed reflow on live updates, no perceptible background
+motion.
 
 ---
 
@@ -307,16 +317,23 @@ risk presentation, and grouping are the dashboard's job, not the backend's.
 
 Stack: React 19, Vite, TypeScript, Tailwind (`@tailwindcss/vite`), TanStack Query.
 
-**Design principle: this is a ledger, not a monitoring dashboard.** Row-based, dense,
-typographically-driven layout (see `DESIGN.md`). Dark-first with glass reserved for
-the chrome: topbar, summary bar, Evidence Inspector, and transient overlays are
-frosted glass (5% white fill, 10% white hairline border, 16px blur max); feed rows and
-anything carrying dense text stay opaque and flat. One aurora-blue action color;
-review/reviewed/approved keep their own state colors, always paired with text/icon,
-never color-alone. Glass collapses to opaque surfaces under
-`prefers-reduced-transparency`/`forced-colors`. No auto-refresh reflow — the feed must
-not jump while someone is reading it. No gamification (streaks, leaderboards, adoption
-scores). No animated glows/parallax.
+**Design principle: this is a ledger in glass, not a monitoring dashboard.**
+Row-based, typographically-driven layout with a premium glass-forward material system
+(see `DESIGN.md`). Dark-first; every container is a rounded frosted-glass panel
+(8% white fill, 14% white hairline border) whose *shell* owns the blur (12px large
+panels, 16px cap on small chrome — never nested, never on rows); dense data rows sit
+flat and contiguous on a ≥80%-opacity tint inside the glass so text stays crisp.
+Sentence-case labels, no uppercase tracked micro-headers. One aurora-blue action
+color; review/reviewed/approved keep their own state colors, always paired with
+text/icon, never color-alone. Glass collapses to opaque surfaces (identical layout)
+under `prefers-reduced-transparency`/`forced-colors`/no-`backdrop-filter`. No
+auto-refresh reflow — the feed must not jump while someone is reading it. No
+gamification (streaks, leaderboards, adoption scores). Motion is minimal and
+token-driven (DESIGN.md §5): feedback at 90–140ms, one-time entrance stagger, route
+fades; the wallpaper-grade gradient canvas (three cool fields, off-edge cores, quiet
+center, debanding grain) drifts imperceptibly on one transform-only layer (≥100s
+cycles, frozen under reduced motion) — no parallax, no perceptible background
+motion.
 
 **Current implementation (`dashboard/src/components/ActivityFeed.tsx`):**
 - **Activity view** — cursor-paginated ledger grouped by day, with filters (repository,
