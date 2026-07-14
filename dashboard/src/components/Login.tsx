@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 export default function Login({ onContinue }: { onContinue: () => void }) {
   const handleClick = () => {
     if (supabase) {
-      void supabase.auth.signInWithOAuth({ provider: 'github', options: { redirectTo: location.origin } })
+      void supabase.auth.signInWithOAuth({ provider: 'github', options: { redirectTo: location.origin, scopes: 'read:user' } })
       return
     }
     onContinue()

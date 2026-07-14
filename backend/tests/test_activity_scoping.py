@@ -65,6 +65,7 @@ def assert_scoped(session):
     assert "installation_members" in query
     assert "im.supabase_user_id = :auth_user_id" in query
     assert params["auth_user_id"] == USER_CLAIMS["sub"]
+    assert "repos.removed_at IS NULL" in query
 
 
 def test_recent_is_scoped_to_user():
@@ -95,6 +96,8 @@ def test_recent_unscoped_when_auth_disabled():
     query, params = session.executions[-1]
     assert "installation_members" not in query
     assert "auth_user_id" not in (params or {})
+    # Soft-removed repos must stay excluded even without entitlement scoping.
+    assert "repos.removed_at IS NULL" in query
 
 
 def test_timeline_unentitled_repo_is_404():

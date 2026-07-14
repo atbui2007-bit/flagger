@@ -264,12 +264,31 @@ warning — never set it in a deployed environment). CORS origins are env-driven
 <session token>` to every request when the client is configured. When the env vars are
 unset (local dev), behavior is unchanged — no header, pair with `AUTH_DISABLED=true`.
 
-**Still open (blocks launch requirement #2 — "only see data you're authorized for"):**
-- **Row-level entitlement scoping.** `require_user` proves *who* is calling, but the
-  `/activity/*` queries don't yet filter by the caller's authorized installations/orgs —
-  a valid token currently sees all data. Per-user data scoping is still required.
-- No production hosting decision has been made yet for the backend (API base still
-  defaults to `localhost:8000`).
+**Done — row-level entitlement scoping (2026-07-12):** `installation_members`
+(migration 005) maps Supabase user ids to installations. Every read query filters by
+the caller's active memberships (`auth.py::entitlement_filter` — an IN-subquery on
+`commits.repo_id`; `get_repo` takes an optional `user` and 404s for unentitled repos —
+404, not 403, to avoid existence leaks). `POST /installations/claim` links a signed-in
+user to an installation: it verifies the GitHub OAuth `provider_token` belongs to the
+JWT's GitHub identity (`GET /user` vs `user_metadata.provider_id`) and that the user
+can access the claimed installation (`GET /user/installations`), then upserts both the
+installation row (converging with the webhook) and the membership. `AUTH_DISABLED`
+bypasses scoping entirely; the claim endpoint 400s under it.
+
+**Done — dashboard session gate + Connect claim flow (2026-07-13):**
+`lib/auth.tsx` (`AuthProvider`/`useSession`) owns session state; the app gates on
+signed-out when Supabase is configured. `provider_token` is stashed in sessionStorage
+at OAuth redirect (Supabase does not persist it); the GitHub App Setup redirect
+(`?installation_id=...&setup_action=install`) is captured in `main.tsx` before React
+renders, stashed as a pending installation, and claimed by `Connect.tsx` once signed
+in — with a re-auth CTA when the provider token was lost. 401 responses sign the user
+out. `dashboard/.env.example` documents the four `VITE_*` vars.
+
+**Still open:**
+- No production hosting decision yet; `backend/Dockerfile` (platform-agnostic,
+  PORT-aware) is ready for Railway/Render/Fly.
+- `user_metadata.provider_id` claim shape and the provider-token claim path need one
+  verification pass against a real Supabase GitHub-OAuth session.
 
 ---
 
@@ -331,8 +350,10 @@ it. No gamification (streaks, leaderboards, adoption scores).
 - `Connect`, `Repositories`, and `Settings` components now exist; the dashboard is no
   longer activity-feed-only. `Connect`'s install link is env-driven
   (`VITE_GITHUB_APP_INSTALL_URL`; falls back to the GitHub Apps directory until the real
-  App slug exists). The onboarding flow still needs installation-state reflection, not
-  just facet reads.
+  App slug exists). `Connect` now performs the installation claim (pending id from the
+  Setup redirect → `POST /installations/claim`) and lists connected installations from
+  `GET /installations`; `Settings` shows the signed-in user, sign-out, and live
+  installation state.
 - `fetchJson` attaches the Supabase session token when configured — see §8. Build is
   `tsc -b && vite build` (typecheck enforced).
 - No live/WebSocket updates — the backend has no push mechanism yet, and the frontend
@@ -386,20 +407,26 @@ section as items move.
 1. ~~Frontend auth wiring~~ **Done (2026-07-10)** — Supabase GitHub OAuth in `Login.tsx`
    and `fetchJson` sends `Authorization: Bearer <token>` when `VITE_SUPABASE_URL`/
    `VITE_SUPABASE_ANON_KEY` are set (§8).
-2. **Row-level entitlement scoping** — filter `/activity/*` and `/repos/*` by the
-   caller's authorized installations/orgs; a valid token currently sees all data (§8).
-   This is launch requirement #2.
+2. ~~Row-level entitlement scoping~~ **Done (2026-07-12)** — `installation_members`
+   (migration 005) + entitlement predicate on every read query; claim/list endpoints
+   in `routers/installations.py` (§8). Migration 005 must be applied (flag to the DB
+   collaborator) before deploying with auth on.
 3. ~~Make `"low"` risk reachable~~ **Done for PR-linked commits** (verified end-to-end
    2026-07-09, see §13.5): review ingestion now works and recompute produces `"low"`.
    `risk_no_review` is still hardcoded `True` at push time (§6), so the remaining gap
    is only commits that never get a PR/review.
 4. ~~Recompute risk on later review/CI events~~ **Done** — `risk_recompute.py`, called
    from the review and workflow handlers (§4, §13.17).
-5. **GitHub App onboarding flow** — install URL is now env-driven
-   (`VITE_GITHUB_APP_INSTALL_URL`, 2026-07-10); still needs the real App slug and
-   installation-state reflection in `Connect`, not just facet reads (§10).
-6. **Backend hosting** — no production hosting decision yet; API base still defaults to
-   `localhost:8000` (§8).
+5. ~~GitHub App onboarding flow (dashboard side)~~ **Done (2026-07-13)** — session
+   gate, install-redirect capture, claim flow, installation-state in Connect/Settings
+   (§8, §10). Still needs the real App slug in `VITE_GITHUB_APP_INSTALL_URL`.
+6. **Backend hosting** — no platform decision yet; `backend/Dockerfile` is ready.
+   Remaining go-live steps are ops, not code: create the GitHub App (webhook URL +
+   secret, Setup URL → dashboard origin with "Redirect on update", read perms for
+   contents/pull_requests/checks/actions, events push/pull_request/pull_request_review/
+   workflow_run/installation/installation_repositories), enable Supabase's GitHub OAuth
+   provider, apply migrations 002–005 with the DB collaborator, deploy, set env vars
+   both sides, and verify `user_metadata.provider_id` against a real session.
 
 Deferred by design (do not build ahead of need): v2 risk scoring, WebSocket live feed,
 VS Code extension (§11.10).

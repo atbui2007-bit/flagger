@@ -21,6 +21,7 @@ def activity_filters(
     search: Optional[str],
 ):
     clauses, params = entitlement_filter(user)
+    clauses.append("repos.removed_at IS NULL")
 
     if repository:
         clauses.append("repos.full_name = :repository")
@@ -175,6 +176,7 @@ async def facets(
     session: AsyncSession = Depends(get_db),
 ):
     clauses, params = entitlement_filter(user)
+    clauses.append("repos.removed_at IS NULL")
     where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     query = text(f"""
         SELECT
@@ -199,6 +201,7 @@ async def agents(
     session: AsyncSession = Depends(get_db),
 ):
     clauses, params = entitlement_filter(user)
+    clauses.append("repos.removed_at IS NULL")
     where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     query = text(f"""
         SELECT
@@ -215,6 +218,7 @@ async def agents(
             MAX(commits.pushed_at) AS last_active,
             ARRAY_AGG(DISTINCT commits.attribution_source ORDER BY commits.attribution_source) AS sources
         FROM commits
+        JOIN repos ON commits.repo_id = repos.id
         {where_clause}
         GROUP BY commits.agent_type
         ORDER BY commit_count DESC, commits.agent_type

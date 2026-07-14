@@ -28,6 +28,9 @@ async def handle_pull_request(payload, session: AsyncSession):
             "repo_id": repo_id,
             "head_branch": head_branch,
         })
+        # Backfilled commits carry push-time risk flags from before the PR
+        # existed; re-score them now rather than waiting on a review/CI event.
+        await recompute_for_pull_request(pull_request_id, session)
 
     await session.commit()
 
@@ -69,21 +72,4 @@ async def upsert_pull_request(pr, repo_id, session: AsyncSession):
         "updated_at": parse_dt(pr["updated_at"]),
         "closed_at": parse_dt(pr.get("closed_at"))
     })
-    pull_request_id = result.scalar()
-
-    # Backfill: link any commits pushed to this branch before the PR existed
-    if payload["action"] == "opened" or payload["action"] == "reopened":
-        backfill_query = text("""
-            UPDATE commits SET pull_request_id = :pull_request_id
-            WHERE repo_id = :repo_id AND branch = :head_branch AND pull_request_id IS NULL
-        """)
-        await session.execute(backfill_query, {
-            "pull_request_id": pull_request_id,
-            "repo_id": repo_id,
-            "head_branch": head_branch,
-        })
-        # Backfilled commits carry push-time risk flags from before the PR
-        # existed; re-score them now rather than waiting on a review/CI event.
-        await recompute_for_pull_request(pull_request_id, session)
-
-    await session.commit()
+    return result.scalar()

@@ -5,6 +5,7 @@ import PullRequestDetail from './components/PullRequestDetail'
 import Connect from './components/Connect'
 import Settings from './components/Settings'
 import Login from './components/Login'
+import { useSession, getPendingInstallation, clearPendingInstallation } from './lib/auth'
 
 type Route = { name: 'activity' | 'agents' | 'repositories' | 'settings' | 'connect' | 'login' } | { name: 'pr'; owner: string; repository: string; number: string }
 function parseRoute(): Route {
@@ -23,14 +24,25 @@ function getInitialTheme(): 'light' | 'dark' {
 }
 
 export default function App() {
+  const auth = useSession()
   const [route, setRoute] = useState<Route>(parseRoute)
   const [filters, setFilters] = useState<Filters>(initialFilters)
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme)
   useEffect(() => { document.documentElement.setAttribute('data-theme', theme); localStorage.setItem('theme', theme) }, [theme])
   useEffect(() => { const update = () => setRoute(parseRoute()); addEventListener('hashchange', update); return () => removeEventListener('hashchange', update) }, [])
   useEffect(() => { const label = route.name === 'pr' ? `Pull request #${route.number}` : route.name[0].toUpperCase() + route.name.slice(1); document.title = `${label} — Flagger` }, [route])
+  useEffect(() => {
+    // A GitHub App install redirect stashed a pending installation id; route it
+    // to Connect, which performs the claim. While signed-out the id just waits
+    // in sessionStorage for the login gate to clear.
+    if (!getPendingInstallation()) return
+    if (auth.status === 'signed-in') navigate('/connect')
+    if (auth.status === 'disabled') { clearPendingInstallation(); navigate('/connect') } // claim is unavailable without auth
+  }, [auth.status])
   const updateSearch = (value: string) => { setFilters((current) => ({ ...current, search: value })); if (route.name !== 'activity') navigate('/') }
   const viewRepository = (repository: string) => { setFilters((current) => ({ ...current, repository })); navigate('/') }
+  if (auth.status === 'loading') return null
+  if (auth.status === 'signed-out') return <Login onContinue={() => navigate('/')} />
   if (route.name === 'login') return <Login onContinue={() => navigate('/')} />
   return <div className="app-shell">
     <header className="topbar"><a className="brand" href="#/" aria-label="Flagger activity">Flagger</a><nav aria-label="Primary navigation">
