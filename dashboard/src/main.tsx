@@ -18,6 +18,19 @@ if (params.has('installation_id') || params.has('setup_action')) {
   params.delete('setup_action')
   const query = params.toString()
   history.replaceState(null, '', location.pathname + (query ? `?${query}` : '') + location.hash)
+} else if (location.hash.includes('?')) {
+  // GitHub appends its params after the Setup URL verbatim -- if that URL ever
+  // points at a hash route (e.g. /#/connect), they land inside the hash instead.
+  const [hashPath, hashQuery] = location.hash.split('?')
+  const hashParams = new URLSearchParams(hashQuery)
+  const hashInstallationId = hashParams.get('installation_id')
+  if (hashInstallationId && hashParams.get('setup_action') === 'install') {
+    setPendingInstallation(hashInstallationId)
+    hashParams.delete('installation_id')
+    hashParams.delete('setup_action')
+    const rest = hashParams.toString()
+    history.replaceState(null, '', location.pathname + location.search + hashPath + (rest ? `?${rest}` : ''))
+  }
 }
 
 const queryClient = new QueryClient()

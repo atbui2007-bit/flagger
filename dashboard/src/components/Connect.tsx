@@ -85,7 +85,8 @@ export default function Connect() {
     <section className="flat-section"><h2>Repositories reporting activity</h2>
       {facets.isPending && <div className="ledger-skeleton"><span /><span /></div>}
       {facets.data?.repositories.map((repository) => <div className="reporting-row" key={repository}><code>{repository}</code><span>Receiving webhooks</span></div>)}
-      {!facets.isPending && !facets.data?.repositories.length && <p className="quiet-copy">No repositories are reporting yet. Installation typically takes under a minute to appear.</p>}
+      {facets.isError && <p className="quiet-copy">Couldn't load repositories — sign in and try again.</p>}
+      {!facets.isPending && !facets.isError && !facets.data?.repositories.length && <p className="quiet-copy">No repositories are reporting yet. Installation typically takes under a minute to appear.</p>}
     </section>
   </main>
 }

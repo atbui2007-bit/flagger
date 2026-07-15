@@ -3,7 +3,9 @@ import { supabase } from './supabase'
 export const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000'
 
 export async function fetchJson<T>(path: string, init?: { method?: string; json?: unknown }): Promise<T> {
-  const headers: Record<string, string> = {}
+  // ngrok's free-tier domains serve an HTML interstitial to browser-looking
+  // requests unless this header is present; irrelevant once on a real host.
+  const headers: Record<string, string> = { 'ngrok-skip-browser-warning': 'true' }
   if (init?.json !== undefined) headers['Content-Type'] = 'application/json'
   if (supabase) {
     const { data } = await supabase.auth.getSession()

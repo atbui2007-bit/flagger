@@ -144,14 +144,17 @@ body::before {
   inset: -8vmax;
   z-index: -1;
   pointer-events: none;
-  background-color: #0a0b10;
+  background-color: #0c0d14;
   background-image:
     var(--material-grain),
-    radial-gradient(70% 55% at 55% -5%, rgba(184,146,255,.30) 0%, rgba(184,146,255,.18) 30%, rgba(184,146,255,.07) 55%, rgba(184,146,255,0) 72%),
-    radial-gradient(110% 85% at 12% -10%, rgba(141,162,255,.42) 0%, rgba(141,162,255,.27) 30%, rgba(141,162,255,.10) 55%, rgba(141,162,255,0) 74%),
-    radial-gradient(90% 75% at 95% 105%, rgba(127,216,234,.36) 0%, rgba(127,216,234,.22) 30%, rgba(127,216,234,.085) 55%, rgba(127,216,234,0) 74%);
-  background-size: 128px 128px, auto, auto, auto;
-  background-repeat: repeat, no-repeat, no-repeat, no-repeat;
+    radial-gradient(90% 60% at 20% 0%,   rgba(141,162,255,.20), transparent 55%),
+    radial-gradient(80% 70% at 100% 40%, rgba(184,146,255,.20), transparent 55%),
+    radial-gradient(100% 80% at 60% 120%, rgba(127,216,234,.15), transparent 55%),
+    conic-gradient(from 210deg at 50% 50%,
+      rgba(184,146,255,.06), rgba(127,216,234,.05),
+      rgba(141,162,255,.06), rgba(184,146,255,.06));
+  background-size: 128px 128px, auto, auto, auto, auto;
+  background-repeat: repeat, no-repeat, no-repeat, no-repeat, no-repeat;
   transform: translate(-1vw, -.8vh) scale(1.03);
   animation: aurora-drift 108s var(--ease-ambient) infinite alternate;
   will-change: transform;
@@ -396,9 +399,11 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 @keyframes ledger-rise {
   from { opacity: 0; transform: translateY(6px); }
 }
+/* Opacity-only: a transform here makes .route-view a containing block for the
+   fixed EvidenceInspector, pinning it to the page top instead of the viewport. */
 @keyframes route-enter {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @media (max-width: 860px) {
