@@ -302,8 +302,8 @@ sign-in, `user_metadata.provider_id` claim shape, and the provider-token claim p
 all confirmed against a live session.
 
 **Still open:**
-- No production hosting decision yet; `backend/Dockerfile` (platform-agnostic,
-  PORT-aware) is ready for Railway/Render/Fly.
+- Backend hosting is Railway: deploy `backend/Dockerfile` with configuration in
+  `backend/railway.json`; follow `backend/DEPLOY.md` for the runbook.
 
 ---
 
@@ -447,8 +447,9 @@ section as items move.
 5. ~~GitHub App onboarding flow (dashboard side)~~ **Done (2026-07-13)** — session
    gate, install-redirect capture, claim flow, installation-state in Connect/Settings
    (§8, §10). Still needs the real App slug in `VITE_GITHUB_APP_INSTALL_URL`.
-6. **Backend hosting** — no platform decision yet; `backend/Dockerfile` is ready.
-   Remaining go-live steps are ops, not code: create the GitHub App (webhook URL +
+6. **Backend hosting** — Railway is the chosen platform: deploy the Dockerfile using
+   `backend/railway.json` and follow `backend/DEPLOY.md`. Remaining go-live steps are
+   ops, not code: create the GitHub App (webhook URL +
    secret, Setup URL → dashboard origin with "Redirect on update", read perms for
    contents/pull_requests/checks/actions, events push/pull_request/pull_request_review/
    workflow_run/installation/installation_repositories), enable Supabase's GitHub OAuth
