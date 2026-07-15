@@ -297,11 +297,13 @@ renders, stashed as a pending installation, and claimed by `Connect.tsx` once si
 in — with a re-auth CTA when the provider token was lost. 401 responses sign the user
 out. `dashboard/.env.example` documents the four `VITE_*` vars.
 
+**Done — auth verified end-to-end (2026-07-14):** real Supabase GitHub-OAuth
+sign-in, `user_metadata.provider_id` claim shape, and the provider-token claim path
+all confirmed against a live session.
+
 **Still open:**
 - No production hosting decision yet; `backend/Dockerfile` (platform-agnostic,
   PORT-aware) is ready for Railway/Render/Fly.
-- `user_metadata.provider_id` claim shape and the provider-token claim path need one
-  verification pass against a real Supabase GitHub-OAuth session.
 
 ---
 
@@ -450,8 +452,9 @@ section as items move.
    secret, Setup URL → dashboard origin with "Redirect on update", read perms for
    contents/pull_requests/checks/actions, events push/pull_request/pull_request_review/
    workflow_run/installation/installation_repositories), enable Supabase's GitHub OAuth
-   provider, apply migrations 002–005 with the DB collaborator, deploy, set env vars
-   both sides, and verify `user_metadata.provider_id` against a real session.
+   provider, apply migrations 002–005 with the DB collaborator, deploy, and set env
+   vars both sides. (Auth itself was verified end-to-end against a real Supabase
+   GitHub-OAuth session on 2026-07-14 — §8.)
 
 Deferred by design (do not build ahead of need): v2 risk scoring, WebSocket live feed,
 VS Code extension (§11.10).
