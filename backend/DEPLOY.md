@@ -40,6 +40,13 @@ Railway checks `GET /health` as configured in `railway.json`. After deployment, 
 `https://<railway-domain>/health` returns `{"status":"ok"}` and exercise the GitHub
 App webhook flow.
 
+## Troubleshooting
+
+If Railway reports `Script start.sh not found` or `Railpack could not determine how to
+build the app`, set the service Root Directory to `backend`. This ensures Railway finds
+`railway.json`, which pins the `DOCKERFILE` builder. `start.sh` also works as a custom
+start command if one is needed.
+
 ## Rollback
 
 If a deployment fails, roll back to the previous successful Railway deployment. Keep
