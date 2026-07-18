@@ -249,10 +249,9 @@ different orgs/accounts are tracked and can be soft-removed without losing histo
 - `repo_token(repo)` in `github_app.py` returns the installation token; all handler API
   calls go through it and `github_request`.
 
-**Remaining scaffolding:** `repo_token()` still falls back to a static `GITHUB_TOKEN`
-when no App is configured (logs a warning). That fallback is the last PAT-era code path —
-new GitHub API calls must use the installation-scoped pattern, never reintroduce a raw
-static-token call.
+The PAT era is fully gone: `repo_token()` returns an installation-scoped token or
+raises — there is no static-`GITHUB_TOKEN` fallback. New GitHub API calls must use the
+installation-scoped pattern, never reintroduce a raw static-token call.
 
 Webhook signature verification (`X-Hub-Signature-256` HMAC check in `main.py`) is
 already correct and should remain the first thing that happens on every webhook POST,
@@ -301,9 +300,8 @@ out. `dashboard/.env.example` documents the four `VITE_*` vars.
 sign-in, `user_metadata.provider_id` claim shape, and the provider-token claim path
 all confirmed against a live session.
 
-**Still open:**
-- Backend hosting is Railway: deploy `backend/Dockerfile` with configuration in
-  `backend/railway.json`; follow `backend/DEPLOY.md` for the runbook.
+**Done — hosting:** backend deployed on Railway (`backend/Dockerfile` +
+`backend/railway.json`, runbook in `backend/DEPLOY.md`); frontend deployed on Vercel.
 
 ---
 
@@ -372,12 +370,13 @@ motion.
   become, two separate implementations.
 
 **Known gaps against the target:**
-- API base is now env-driven (`VITE_API_BASE`, `dashboard/src/lib/api.ts`), defaulting to
-  `localhost:8000` — set it in the deploy environment to point at a real backend.
+- API base is env-driven (`VITE_API_BASE`, `dashboard/src/lib/api.ts`), defaulting to
+  `localhost:8000` for local dev; set to the Railway backend URL in the Vercel deploy.
 - `Connect`, `Repositories`, and `Settings` components now exist; the dashboard is no
   longer activity-feed-only. `Connect`'s install link is env-driven
-  (`VITE_GITHUB_APP_INSTALL_URL`; falls back to the GitHub Apps directory until the real
-  App slug exists). `Connect` now performs the installation claim (pending id from the
+  (`VITE_GITHUB_APP_INSTALL_URL`, set to the real App slug in the Vercel deploy; falls
+  back to the GitHub Apps directory only when unset). `Connect` performs the installation
+  claim (pending id from the
   Setup redirect → `POST /installations/claim`) and lists connected installations from
   `GET /installations`; `Settings` shows the signed-in user, sign-out, and live
   installation state.
@@ -430,123 +429,15 @@ section as items move.
 - Dashboard API base is env-driven; `Connect`/`Repositories`/`Settings` views added.
 - `004_launch_hardening.sql` applied.
 
-**Next (ordered roughly by launch impact):**
-1. ~~Frontend auth wiring~~ **Done (2026-07-10)** — Supabase GitHub OAuth in `Login.tsx`
-   and `fetchJson` sends `Authorization: Bearer <token>` when `VITE_SUPABASE_URL`/
-   `VITE_SUPABASE_ANON_KEY` are set (§8).
-2. ~~Row-level entitlement scoping~~ **Done (2026-07-12)** — `installation_members`
-   (migration 005) + entitlement predicate on every read query; claim/list endpoints
-   in `routers/installations.py` (§8). Migration 005 must be applied (flag to the DB
-   collaborator) before deploying with auth on.
-3. ~~Make `"low"` risk reachable~~ **Done for PR-linked commits** (verified end-to-end
-   2026-07-09, see §13.5): review ingestion now works and recompute produces `"low"`.
-   `risk_no_review` is still hardcoded `True` at push time (§6), so the remaining gap
-   is only commits that never get a PR/review.
-4. ~~Recompute risk on later review/CI events~~ **Done** — `risk_recompute.py`, called
-   from the review and workflow handlers (§4, §13.17).
-5. ~~GitHub App onboarding flow (dashboard side)~~ **Done (2026-07-13)** — session
-   gate, install-redirect capture, claim flow, installation-state in Connect/Settings
-   (§8, §10). Still needs the real App slug in `VITE_GITHUB_APP_INSTALL_URL`.
-6. **Backend hosting** — Railway is the chosen platform: deploy the Dockerfile using
-   `backend/railway.json` and follow `backend/DEPLOY.md`. Remaining go-live steps are
-   ops, not code: create the GitHub App (webhook URL +
-   secret, Setup URL → dashboard origin with "Redirect on update", read perms for
-   contents/pull_requests/checks/actions, events push/pull_request/pull_request_review/
-   workflow_run/installation/installation_repositories), enable Supabase's GitHub OAuth
-   provider, apply migrations 002–005 with the DB collaborator, deploy, and set env
-   vars both sides. (Auth itself was verified end-to-end against a real Supabase
-   GitHub-OAuth session on 2026-07-14 — §8.)
+**Launched.** All launch criteria in §2 are met: frontend auth wiring, row-level
+entitlement scoping, reachable `"low"` risk, recompute on later review/CI events, and
+the GitHub App onboarding flow are all shipped; the real GitHub App is created with its
+slug wired into `VITE_GITHUB_APP_INSTALL_URL`; Supabase GitHub OAuth is enabled (auth
+verified end-to-end 2026-07-14, §8); migrations 002–005 are applied to production; the
+backend runs on Railway and the dashboard on Vercel (§8).
 
 Deferred by design (do not build ahead of need): v2 risk scoring, WebSocket live feed,
 VS Code extension (§11.10).
-
-## 13. Known Bugs — Live Run-Through (2026-07-09)
-
-Found by driving the running app (backend + dashboard, Playwright) plus two independent
-code reviews (Claude subagent + Codex). "Live" = reproduced against the running app;
-"code" = confirmed by reading the code; "suspected" = strong evidence, not reproduced.
-
-**Backend**
-1. **FIXED (2026-07-09)** *(was live)* Malformed `cursor` (any non-UUID) → **500** on
-   `/activity/recent` and `/repos/{o}/{n}/timeline`; timeline also 500'd on a
-   valid-but-unknown UUID cursor. Fix: both routers validate the cursor with
-   `UUID(cursor)` and treat invalid values as "no cursor" (first page), and timeline
-   gained the same `cursor_timestamp is not None` guard activity already had.
-   Verified live: malformed/unknown cursors return 200 first pages; valid pagination
-   round-trips unchanged. Codex-reviewed: correct as-is.
-2. **FIXED (2026-07-09)** *(was code)* `timeline.py` `ORDER BY pushed_at DESC` lacked
-   the `id DESC` tiebreaker its `(pushed_at, id)` cursor assumes — same-timestamp
-   commits could be skipped/duplicated across pages. Fix: added `commits.id DESC`,
-   matching `activity.py`.
-3. **FIXED (2026-07-10)** *(was code)* No router filtered `repos.removed_at IS NULL`.
-   Fix: `activity.py::activity_filters` seeds the clause unconditionally (covers
-   `/recent` + `/summary`); `/facets` and `/agents` gained the WHERE (and `/agents` the
-   missing repos join). Timeline/PR detail were already covered via `get_repo()`.
-4. **FIXED (2026-07-10)** *(was code)* Webhook race: `get_pull_request_id()` 404'd when
-   a review/workflow_run event arrived before the PR row existed, losing the event.
-   Fix: PR upsert extracted to `PullRequests.py::upsert_pull_request()`;
-   `get_pull_request_id(..., required=False)` returns `None` instead of raising;
-   `PullRequestReview.py` creates the missing PR from the webhook's full
-   `pull_request` object, `WorkflowRun.py` fetches the PR from the GitHub API
-   (installation token) and upserts it, logging + skipping (no 500) if the fetch fails.
-   Workflow runs with an empty `pull_requests` list are still skipped by design
-   (schema requires a PR), now with a log line.
-5. **CONFIRMED & FIXED (2026-07-09)** *(was suspected)* `PullRequestReview.py` read
-   `review["created_at"]`, which GitHub's review webhook object does not include (only
-   `submitted_at`) → KeyError/500 on every review webhook; this is why the DB had zero
-   reviews. Fix: `review.get("created_at") or review["submitted_at"]`. Verified
-   end-to-end with a signed `pull_request_review` webhook (no `created_at` key):
-   200, review row inserted, and `risk_recompute` flipped the PR's commit from
-   `medium` → `low` — proving launch requirement #4 ("low" reachable) works once
-   reviews ingest. (`submitted_at` is absent only on PENDING reviews, which never
-   fire this webhook.) Codex-reviewed: correct as-is.
-6. **FIXED (2026-07-10)** *(was code)* PR upsert's `ON CONFLICT` now also updates
-   `title`, `url`, `author_login` — `edited` events no longer leave stale metadata.
-7. **FIXED (2026-07-10)** *(was code)* `AttributionResolver.py` co-author check now uses
-   `re.finditer` over **all** `Co-authored-by:` trailers — a human co-author listed
-   before the agent no longer hides the agent.
-8. **FIXED (2026-07-10)** *(was code)* Definition drift resolved: push-time
-   `risk_large_unreviewed` is now `additions > 500 AND no_review` (`push.py`), matching
-   `risk_recompute.py` (identical value at push time while `risk_no_review` is
-   hardcoded `True` there, but the flag now means one thing).
-
-**Frontend**
-9. **FIXED (2026-07-10)** *(was live)* "Review queue" sort scrambled day groups. Fix:
-   commits are sorted by `pushed_at` desc first, day groups built from that order
-   (newest day always first), then priority sort applied *within* each group. The sort
-   still only applies to the loaded page — inherent to server-side pagination, accepted.
-10. **FIXED (2026-07-10)** *(was live)* Ledger row title and its aria-label now render
-    only the first line of the commit message — `Co-authored-by:` trailers no longer
-    leak into the feed.
-11. **FIXED (2026-07-10)** *(was live)* PR detail view is now reachable: feed/timeline
-    queries LEFT JOIN `pull_requests` to expose `pr_number`, and the Evidence Inspector
-    links to `#/repos/{owner}/{repo}/pr/{n}` when the commit belongs to a PR.
-12. **FIXED (2026-07-10)** *(was code)* Pagination cursor reset moved to a single
-    `useEffect` on `filters` in `ActivityFeed` — every filter change (topbar search,
-    Repositories "View activity", "Clear filters", in-component filters) now resets the
-    cursor through one path; the per-call resets in `updateFilter` were removed.
-13. **FIXED (2026-07-10)** *(was code)* Summary chips render `—` on fetch error instead
-    of fake zeros (`data-populated` also stays false on error). The duplicate loading
-    card was removed; `isPending` renders only the skeleton.
-14. **FIXED (2026-07-10)** *(was code)* `Repositories.tsx` renders a neutral `—` cell
-    (no state class) while a per-repo summary is in flight, instead of green "Clear".
-15. **FIXED (2026-07-10)** *(was code)* Both onboarding CTAs are real now: `Connect.tsx`
-    install link is env-driven (`VITE_GITHUB_APP_INSTALL_URL`, generic directory +
-    "App slug pending" title only as fallback), and `Login.tsx` performs Supabase
-    GitHub OAuth when configured (see §8), falling back to plain navigation in local
-    dev with no Supabase env.
-16. **FIXED (2026-07-10)** *(was suspected)* Strict-null violations resolved (summary
-    stats are plain `number` now) and `build` is `tsc -b && vite build`, so the
-    typecheck is enforced; `*.tsbuildinfo` gitignored. One latent unused-variable error
-    surfaced by `tsc -b` was removed.
-
-**Stale docs (this file)**
-17. **FIXED (2026-07-10)** — §8, §10, and §12 updated to reflect frontend auth wiring,
-    the env-driven install URL, and the fixes above.
-
-Previously noted here and now resolved: `fetchJson` sends the Supabase session token
-when configured (§8). Still open: per-user entitlement scoping — any valid token reads
-all data (§12 Next #2).
 
 ## Non-Goals
 

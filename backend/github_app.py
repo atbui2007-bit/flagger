@@ -6,20 +6,19 @@ from pathlib import Path
 import jwt
 
 from github_client import github_request
-from log_config import get_logger
 
 
 _token_cache: dict[int, tuple[str, datetime]] = {}
 _installation_locks: dict[int, asyncio.Lock] = {}
 _locks_guard = asyncio.Lock()
-logger = get_logger(__name__)
 
 
-async def repo_token(repo) -> str | None:
-    if repo.github_installation_id and os.getenv("GITHUB_APP_ID"):
-        return await get_installation_token(repo.github_installation_id)
-    logger.warning("falling back to static GITHUB_TOKEN")
-    return os.getenv("GITHUB_TOKEN")
+async def repo_token(repo) -> str:
+    if not (repo.github_installation_id and os.getenv("GITHUB_APP_ID")):
+        raise RuntimeError(
+            f"no installation token for repo {repo.id}: GitHub App not configured or repo unlinked"
+        )
+    return await get_installation_token(repo.github_installation_id)
 
 
 def _private_key() -> str:
