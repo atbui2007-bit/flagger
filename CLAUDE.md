@@ -1,9 +1,9 @@
 # CLAUDE.md — Flagger
 
 This is the canonical context file for Claude Code in this repo. Read it before making
-changes. It describes what Flagger is, why it's built the way it is, and what "done"
-looks like for launch. It does not contain a task list — task tracking lives in Notion.
-Treat the conventions below as deliberate, not default scaffolding to "clean up."
+changes. It describes what Flagger is, what shipped in v1 (launched), and what v2 is
+about. It does not contain a task list — task tracking lives in Notion. Treat the
+conventions below as deliberate, not default scaffolding to "clean up."
 
 ---
 
@@ -15,7 +15,7 @@ Flagger is an **audit-trail SaaS product** for engineering teams adopting AI cod
 agents. It answers one question for a tech lead: *"Everything AI touched in this repo —
 show it to me, ordered, traceable, in one place."* A secondary, not-yet-validated
 question is which of that activity actually needs attention before it ships (risk
-scoring, intentionally v2).
+scoring, intentionally simple in v1).
 
 Flagger is **not** a code quality reviewer — that's CodeRabbit's job. It tracks
 provenance and process (who/what wrote code, how much oversight it got), not whether the
@@ -24,54 +24,37 @@ code is good.
 **Differentiator:** zero developer-side setup. Competing tools like `git-ai` require a
 CLI wrapper per developer. Flagger connects via a GitHub App webhook once, at the repo
 level, and gets visibility immediately. Flagger treats `git-ai` as complementary, not a
-competitor: if a repo already has `git-ai` Git Notes at `refs/notes/ai`, Flagger reads
-them as a higher-confidence attribution source. Where `git-ai` isn't present, Flagger
-falls back to its own heuristics.
+competitor: if a repo has `git-ai` Git Notes at `refs/notes/ai`, Flagger reads them as a
+higher-confidence attribution source; otherwise it falls back to its own heuristics.
 
 **Primary users:** tech leads / staff engineers wanting a cross-repo, cross-contributor
 view of AI-authored activity, with budget authority.
 **Secondary users:** individual developers reviewing their own agent activity — the same
 feed, scoped with a contributor filter. There is one view, not two products.
 
-**Brand/product feel** (see `DESIGN.md` for full tokens): "The Ledger Under Glass",
-glass-forward — a dark-first, polished, premium ledger that lives inside frosted
-glass. Every container (ledger shell, tables, filters, cards, Evidence Inspector,
-login) is a rounded glass panel over a composed wallpaper-grade gradient canvas
-(three cool fields, off-edge cores, quiet center, debanding grain); dense data rows
-sit on a high-opacity tint inside the glass so evidence stays
-crisp (blur belongs to panel shells only, never rows, never nested). All data and
-columns stay — premium comes from material and spacing, not from hiding information.
-GitHub's familiarity with SHAs/branches/diffs remains. A minimal motion system
-(feedback micro-interactions, once-per-mount entrance stagger, quiet route fades) and
-an almost-imperceptibly drifting canvas (transform-only, ≥100s cycles,
-frozen under reduced motion) keep it from feeling flat — see DESIGN.md §5 Motion.
-Explicitly not a Datadog/Splunk-style observability wall, no gamification, no
+**Brand/product feel** (see `DESIGN.md` for full tokens): "The Ledger Under Glass" —
+dark-first, glass-forward, premium. Every container is a rounded frosted-glass panel
+over a composed wallpaper-grade gradient canvas; dense data rows sit on a high-opacity
+tint inside the glass so evidence stays crisp (blur belongs to panel shells only, never
+rows, never nested). All data and columns stay — premium comes from material and
+spacing, not from hiding information. Minimal token-driven motion (DESIGN.md §5);
+imperceptibly drifting canvas (transform-only, ≥100s cycles, frozen under reduced
+motion). Explicitly not a Datadog-style observability wall, no gamification, no
 color-only risk signals, no feed reflow on live updates, no perceptible background
 motion.
 
 ---
 
-## 2. What "Launched" Means
+## 2. v1 — Launched
 
-Flagger is launched when an external user can:
+Flagger v1 is live: backend on Railway (`backend/Dockerfile` + `backend/railway.json`,
+runbook in `backend/DEPLOY.md`), dashboard on Vercel, real GitHub App created with its
+slug in `VITE_GITHUB_APP_INSTALL_URL`, Supabase GitHub OAuth enabled (auth verified
+end-to-end 2026-07-14), migrations 001–005 applied to production. An external user can
+install the App with zero CLI/config, sign in, and see a correctly-scoped activity feed
+with honest attribution confidence and reachable "low" risk.
 
-1. Click "Connect GitHub," install the Flagger GitHub App on one or more repos, and see
-   activity start flowing in — with no CLI, no config file, no manual webhook setup.
-2. Sign in, and only see data for repos/orgs they're authorized for (not everyone's data).
-3. Open the dashboard and see a real, correctly-scoped activity feed: commits, PR/CI/
-   review context, and an honestly-labeled attribution confidence per commit.
-4. Trust that "low risk" is an achievable, meaningful state — not a badge that can
-   mathematically never appear.
-5. Use the product against a backend that isn't pointed at `localhost` and isn't relying
-   on a single long-lived personal access token for GitHub API calls.
-
-Everything below describes the system that supports that. Where the current
-implementation doesn't yet match the target, that's called out explicitly so it isn't
-mistaken for working behavior.
-
----
-
-## 3. Architecture Overview
+### Architecture
 
 ```
 GitHub (webhooks + REST API)
@@ -86,358 +69,221 @@ Supabase / PostgreSQL (raw SQL via SQLAlchemy async, RLS default-deny)
 React dashboard (activity ledger, agent breakdown, evidence inspector)
 ```
 
-Monorepo layout:
-```
-flagger/
-├── backend/          FastAPI: webhooks, attribution, scoring, REST API
-├── dashboard/        React (Vite + Tailwind + TanStack Query) tech-lead/dev activity view
-└── extension/        VS Code extension — deferred, not active development
-```
+Monorepo: `backend/` (FastAPI), `dashboard/` (React 19 + Vite + TypeScript + Tailwind +
+TanStack Query), `extension/` (VS Code — deferred, not active development).
 
-### Backend file structure
+Backend file map:
+
 ```
 backend/
 ├── main.py                    FastAPI app, webhook signature verification, install guard, event router
 ├── database.py                async engine + session factory (asyncpg, PgBouncer-safe)
-├── auth.py                    require_user() — Supabase JWT verification (HS256 secret or JWKS)
+├── auth.py                    require_user() — Supabase JWT verification; entitlement_filter()
 ├── github_client.py           shared httpx AsyncClient + retry/backoff, lifespan-closed
 ├── github_app.py              GitHub App JWT → per-installation access token, cached + locked
 ├── log_config.py              structured logging setup
 ├── AttributionResolver.py     git-ai note fetch (enhanced) + heuristic fallback
 ├── scoring.py                 compute_risk() — flag-count model
 ├── risk_recompute.py          re-scores a PR's commits when review/CI/linkage changes
-├── db/
-│   └── repos.py                get_repo(), get_pull_request_id() lookups
-├── handlers/
-│   ├── Installation.py         handle_installation(), handle_installation_repositories()
-│   ├── PullRequests.py         handle_pull_request() + commit backfill + recompute
-│   ├── WorkflowRun.py          handle_workflow_run() + recompute
-│   ├── PullRequestReview.py    handle_pull_request_review() + recompute
-│   └── push.py                 handle_push() — commit ingestion, attribution, scoring
+├── db/repos.py                get_repo(), get_pull_request_id() lookups
+├── handlers/                  Installation, PullRequests, WorkflowRun, PullRequestReview, push
 ├── routers/
-│   ├── activity.py             GET /activity/recent, /summary, /facets, /agents (auth-gated)
-│   ├── timeline.py             GET /repos/{owner}/{name}/timeline (auth-gated)
-│   └── prs.py                  GET /repos/{owner}/{name}/prs/{number} (auth-gated)
-└── migrations/
-    ├── 001_v1_schema.sql       full DB schema
-    ├── 002_repos_removed_at.sql
-    ├── 003_github_app.sql      installations table + repo installation_id linkage
-    └── 004_launch_hardening.sql
+│   ├── activity.py            GET /activity/recent, /summary, /facets, /agents
+│   ├── timeline.py            GET /repos/{owner}/{name}/timeline
+│   ├── prs.py                 GET /repos/{owner}/{name}/prs/{number}
+│   └── installations.py       POST /installations/claim, GET /installations
+└── migrations/                001_v1_schema … 005_installation_members (all applied)
 ```
 
----
+### Database
 
-## 4. Database
+Six core tables (`001_v1_schema.sql`): `repos` → `commits` → `file_changes`;
+`commits.pull_request_id` (nullable, inferred at push time from open PR on
+`repo_id`+`head_branch`) → `pull_requests` → `ci_runs`, `reviews`. Plus
+`installations` (003) and `installation_members` (005). RLS enabled default-deny on
+all tables (backend connects as a `BYPASSRLS` role through the pooler). Soft-delete
+everywhere state is removable (`repos.removed_at`, `installations.suspended_at`/
+`deleted_at`, `installation_members.removed_at`) — the audit trail must survive
+removal events; default reads guard with `WHERE ... IS NULL`.
 
-Six tables, defined in raw SQL (`backend/migrations/001_v1_schema.sql`), not an ORM
-model layer:
+### Attribution
 
-```
-repos
-  └── commits ──→ file_changes
-        └── (nullable FK) pull_requests
-              ├── ci_runs
-              └── reviews
-```
+Two-mode resolver (`AttributionResolver.py`): **enhanced** — `git-ai` Git Notes at
+`refs/notes/ai` read via the Git Data API ref-walk (ref → notes commit → recursive
+tree → blob matching the commit SHA → base64 JSON note), `attribution_source =
+"git_ai_notes"`, `confidence = "certain"`, degrades safely to `None` on any miss;
+**heuristic fallback** — bot-account login matching, `Co-authored-by:` trailer parsing
+(all trailers, via `re.finditer`), else `agent_type = "unknown"`, `confidence =
+"suspected"`. Confidence is always surfaced explicitly in the UI — "Devin (certain)"
+and "Heuristic match (suspected)" are different claims; never flatten them.
 
-- `commits.pull_request_id` is nullable and resolved at push time by looking up an open
-  PR on `repo_id` + `head_branch` — pushes and PR-opened events arrive as separate
-  webhooks, so this linkage is inferred, not given directly by GitHub.
-- Risk fields on `commits` (`risk_level`, `risk_no_review`, `risk_ci_unclean`,
-  `risk_sensitive_path`, `risk_large_unreviewed`, `risk_direct_to_main`) are computed
-  at push time, then **recomputed** when later review/CI webhooks arrive:
-  `risk_recompute.py::recompute_for_pull_request()` is called from both
-  `PullRequestReview.py` and `WorkflowRun.py` and updates all PR-linked commits
-  (setting `altered_at`). Commits with no PR linkage (e.g. direct-to-main) are never
-  recomputed — by design, since no review/CI events reference them.
-- RLS is enabled with default-deny (no policies) across all six tables. This closes
-  public PostgREST exposure. It does not affect the backend, which connects as a
-  `BYPASSRLS` role through the pooler.
-- Soft-delete convention: any table representing installable/removable state uses
-  soft-delete columns with a `WHERE ... IS NULL` guard on default reads, never hard
-  deletes — the audit trail must survive removal events. `repos` uses `removed_at`;
-  the `installations` table (added in `003_github_app.sql`) uses `suspended_at` /
-  `deleted_at`, set by the `installation` webhook actions (suspend/unsuspend/deleted).
+Agent coverage is phased: Phase 1 (shipped) — Claude Code, Codex, Devin, Aider.
+Phase 2+ (Lovable, Replit, Cursor Agent, Copilot Agent) and Phase 4 (inline
+suggestions, needs the VS Code extension) are out of scope until Phase 1 is validated.
 
-**Conventions that are deliberate, not accidental:**
-- Raw SQL via `text()` with bound params, not declarative ORM models. The schema was
-  designed in SQL first.
-- `SQLAlchemy` `Row` objects must be converted with `dict(row._mapping)` before FastAPI
-  can serialize them — this has bitten every new endpoint so far; do it proactively.
-- Cursor-based pagination (`(pushed_at, id)` tuple comparison), never offset — offset
-  breaks under concurrent inserts and doesn't set up cleanly for a future WebSocket feed.
-- Idempotent upserts on GitHub's own stable IDs (`github_pr_number`+`repo_id`,
-  `github_run_id`, `github_review_id`, commit `sha`), because GitHub redelivers
-  webhooks. Any new handler must follow this pattern.
-- PgBouncer runs in transaction mode, which doesn't support prepared statements — the
-  engine is created with `connect_args={"statement_cache_size": 0}`. Never remove this.
-- Per-handler queries instead of mega-joins for multi-table reads (e.g. PR detail) —
-  joining `pull_requests` + `commits` + `ci_runs` + `reviews` in one query would multiply
-  rows whenever a PR has more than one commit or review.
-- Database schema and infrastructure are owned jointly with a collaborator who is not on
-  this Claude workspace. Any migration or schema change should be treated as a decision
-  to be communicated, not just applied — the handoff doc is the sync mechanism.
+### Risk scoring
 
----
+`scoring.py::compute_risk()` — additive flag count (0 → low, 1 → medium, 2 → high,
+3+ → critical) over `risk_no_review`, `risk_ci_unclean`, `risk_sensitive_path`,
+`risk_large_unreviewed` (`additions > 500 AND no_review`), `risk_direct_to_main`.
+Computed at push time (`risk_no_review` starts `True` — reviews arrive later), then
+**recomputed** by `risk_recompute.py::recompute_for_pull_request()` whenever a review,
+workflow run, or PR event lands — so "low" is reachable for any commit that ends up on
+a reviewed PR. Commits never linked to a PR keep `risk_no_review = True` permanently,
+which is the honest claim. Deliberately simple; v2 ML scoring is deferred until real
+usage data exists.
 
-## 5. Attribution (how Flagger knows *who* wrote a commit)
+### GitHub integration
 
-Two-mode resolver, `AttributionResolver.py`:
+Flagger is a GitHub App. `github_app.py`: app JWT (RS256) → installation access token
+(`POST /app/installations/{id}/access_tokens`), cached per installation with a
+5-minute expiry buffer, per-installation `asyncio.Lock` against token stampedes.
+`github_client.py`: one shared `httpx.AsyncClient` with retry/backoff on 5xx/403/429
+(honors `Retry-After`), closed via lifespan hook. `repo_token(repo)` returns an
+installation-scoped token or **raises** — the PAT era is fully gone; never reintroduce
+a static-token call. Webhook signature verification (`X-Hub-Signature-256` HMAC in
+`main.py`) is the first thing that happens on every webhook POST, before any payload
+parsing; then the installation guard (untracked/removed repo → ignored,
+missing/suspended/deleted installation → 409) runs before any handler.
 
-1. **Enhanced mode** — if the repo has `git-ai` Git Notes at `refs/notes/ai` for a
-   commit, use that directly. `attribution_source = "git_ai_notes"`,
-   `attribution_confidence = "certain"`. This is the preferred path when available.
-2. **Heuristic fallback** — bot-account login matching (`claude-ai[bot]`,
-   `devin-ai-integration[bot]`, etc.), `Co-authored-by:` trailer parsing against known
-   agent names, otherwise `agent_type = "unknown"` with `attribution_confidence =
-   "suspected"`.
+### Auth & entitlements
 
-Attribution confidence must always be surfaced explicitly in the UI — never flattened
-into a plain agent-name list. "Devin (certain)" and "Heuristic match (suspected)" are
-different claims and the product's credibility depends on not blurring that line.
+`auth.py::require_user` verifies the Supabase JWT on every read router (HS256 shared
+secret or JWKS ES256/RS256; checks audience + issuer). `AUTH_DISABLED=true` is a
+local-dev-only escape hatch. Every read query is scoped by
+`auth.py::entitlement_filter` — an IN-subquery on `commits.repo_id` over the caller's
+active `installation_members` rows. `get_repo` 404s (not 403) for unentitled repos to
+avoid existence leaks. `POST /installations/claim` links a signed-in user to an
+installation after the App install redirect: verifies the GitHub OAuth
+`provider_token` belongs to the JWT's GitHub identity (`GET /user` vs
+`user_metadata.provider_id`), checks the installation appears in
+`GET /user/installations`, then idempotently upserts installation + membership
+(role `admin`). The dashboard (`lib/auth.tsx`) owns session state, stashes
+`provider_token` in sessionStorage at OAuth redirect, captures the App Setup redirect
+before React renders, and claims it in `Connect.tsx`; 401s sign the user out.
 
-**Agent coverage is phased.** Phase 1 (ship now): Claude Code, Codex, Devin, Aider —
-these are GitHub-visible with high-confidence signals. Phase 2+ (Lovable, Replit Agent,
-Cursor Agent mode, Copilot Agent) and Phase 4 (inline suggestions, invisible at the Git
-layer — would require the VS Code extension) are explicitly out of scope until Phase 1
-is validated with real usage.
+### Backend API
 
-**Enhanced mode is now implemented** (was previously stubbed against a non-existent
-endpoint). `fetch_git_ai_note()` walks `refs/notes/ai` via the Git Data API the correct
-way: ref → notes commit → tree (`?recursive=1`) → find the blob whose path matches the
-commit SHA → decode the base64 JSON note. It degrades safely (returns `None`) on any
-404/missing-ref/malformed-blob, falling back to the heuristic resolver. `git_ai_model`
-is carried through from the note when present.
+- `POST /webhook` — single endpoint, event type from `X-GitHub-Event`, signature-verified, dispatched to `handlers/`.
+- `GET /activity/recent` — cursor-paginated commit feed (repository, contributor, agent, risk, confidence, search filters).
+- `GET /activity/summary`, `/facets`, `/agents` — aggregates, filter options, per-agent rollup for the same filter set.
+- `GET /repos/{owner}/{name}/timeline` — same cursor pattern, one repo.
+- `GET /repos/{owner}/{name}/prs/{number}` — PR detail (four separate queries, not a join — joins would multiply rows).
+- `POST /installations/claim`, `GET /installations` — see auth above.
 
----
+All read endpoints require a Supabase bearer token and are entitlement-scoped. API
+responsibility stops at data normalization — formatting, relative timestamps, risk
+presentation, and grouping are the dashboard's job.
 
-## 6. Risk Scoring (intentionally simple, v1)
+### Frontend
 
-`backend/scoring.py::compute_risk()` is an additive flag-count model: 0 flags → low,
-1 → medium, 2 → high, 3+ → critical. This is deliberate — there is no real usage data
-yet to train or validate anything more sophisticated, and building v2 (Claude Batch API
-→ fine-tuned classifier) before v1 has real signal would be premature. Do not scaffold
-v2 unless explicitly asked.
+One view, two lenses: the **Activity** ledger (cursor-paginated, grouped by day,
+filters + debounced search, Evidence Inspector side panel with per-signal risk
+breakdown and GitHub/PR links) and the **Agents** table (per-agent share, reach,
+certain-vs-suspected split — clicking an agent just pre-filters the Activity view).
+`Connect`/`Repositories`/`Settings` handle onboarding and installation state. The
+individual-developer view is the same component with a contributor filter — never two
+implementations. Env-driven config: `VITE_API_BASE` (Railway URL in prod),
+`VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`, `VITE_GITHUB_APP_INSTALL_URL`. Build is
+`tsc -b && vite build` (typecheck enforced). No live/WebSocket updates — the backend
+has no push mechanism; don't grow one ahead of it.
 
-**How `risk_no_review` resolves:** `handlers/push.py` still sets `risk_no_review =
-True` at ingestion time (reviews arrive later, asynchronously), but
-`risk_recompute.py::recompute_for_pull_request()` re-scores a PR's commits whenever a
-review, workflow run, or PR-opened/reopened event arrives — so `"low"` is achievable
-for any commit that ends up on a reviewed PR. Commits never linked to a PR keep
-`risk_no_review = True` permanently, which is the honest claim: they were not reviewed.
+v1 also closed a 17-item launch bug ledger (cursor-validation 500s, webhook
+race/ordering fixes, review ingestion KeyError, co-author trailer leaks, pagination
+reset unification, honest loading/error states — all verified live 2026-07-09/10).
+Details live in git history if ever needed.
 
 ---
 
-## 7. GitHub Integration
+## 3. Hard Conventions — Do Not Deviate Without Explicit Discussion
 
-**Target state:** Flagger is a GitHub App (not a personal-access-token integration).
-Installation happens per org/repo through GitHub's install flow, tokens are scoped to
-the installation and refreshed automatically, and multiple installations across
-different orgs/accounts are tracked and can be soft-removed without losing history.
-
-**Done — the GitHub App token flow is built:**
-- `github_app.py`: app JWT (`_make_app_jwt`, RS256, private key from env/path) →
-  installation access token via `POST /app/installations/{id}/access_tokens`. Tokens are
-  cached per installation with a 5-minute expiry buffer and guarded by a per-installation
-  `asyncio.Lock` so concurrent webhooks don't stampede the token endpoint.
-- `github_client.py`: one shared `httpx.AsyncClient` with retry/backoff on 5xx/403/429
-  (honors `Retry-After`), closed on app shutdown via the lifespan hook.
-- `handlers/Installation.py`: `installation` and `installation_repositories` webhooks
-  populate the `installations` table and link/unlink `repos.installation_id`.
-- `main.py` runs an **installation guard** before dispatching any repo-scoped event:
-  untracked/removed repo → ignored; missing/suspended/deleted installation → 409.
-- `repo_token(repo)` in `github_app.py` returns the installation token; all handler API
-  calls go through it and `github_request`.
-
-The PAT era is fully gone: `repo_token()` returns an installation-scoped token or
-raises — there is no static-`GITHUB_TOKEN` fallback. New GitHub API calls must use the
-installation-scoped pattern, never reintroduce a raw static-token call.
-
-Webhook signature verification (`X-Hub-Signature-256` HMAC check in `main.py`) is
-already correct and should remain the first thing that happens on every webhook POST,
-before any payload parsing.
-
----
-
-## 8. Auth & Hosting (partially implemented)
-
-**Done — backend auth:** `auth.py::require_user` verifies a Supabase JWT on every read
-router (`/activity/*`, `/repos/*` — wired via `Depends(require_user)` in `main.py`). It
-supports both legacy HS256 shared-secret projects (`SUPABASE_JWT_SECRET`) and newer
-asymmetric keys via the JWKS endpoint (ES256/RS256), checking `audience` and `issuer`.
-`AUTH_DISABLED=true` is a local-dev escape hatch that bypasses verification (it logs a
-warning — never set it in a deployed environment). CORS origins are env-driven
-(`CORS_ALLOWED_ORIGINS`).
-
-**Done — frontend auth wiring (2026-07-10):** the dashboard has a Supabase client
-(`dashboard/src/lib/supabase.ts`, built from `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY`;
-`null` when unset), `Login.tsx` performs a real GitHub OAuth sign-in via
-`supabase.auth.signInWithOAuth`, and `fetchJson` attaches `Authorization: Bearer
-<session token>` to every request when the client is configured. When the env vars are
-unset (local dev), behavior is unchanged — no header, pair with `AUTH_DISABLED=true`.
-
-**Done — row-level entitlement scoping (2026-07-12):** `installation_members`
-(migration 005) maps Supabase user ids to installations. Every read query filters by
-the caller's active memberships (`auth.py::entitlement_filter` — an IN-subquery on
-`commits.repo_id`; `get_repo` takes an optional `user` and 404s for unentitled repos —
-404, not 403, to avoid existence leaks). `POST /installations/claim` links a signed-in
-user to an installation: it verifies the GitHub OAuth `provider_token` belongs to the
-JWT's GitHub identity (`GET /user` vs `user_metadata.provider_id`) and that the user
-can access the claimed installation (`GET /user/installations`), then upserts both the
-installation row (converging with the webhook) and the membership. `AUTH_DISABLED`
-bypasses scoping entirely; the claim endpoint 400s under it.
-
-**Done — dashboard session gate + Connect claim flow (2026-07-13):**
-`lib/auth.tsx` (`AuthProvider`/`useSession`) owns session state; the app gates on
-signed-out when Supabase is configured. `provider_token` is stashed in sessionStorage
-at OAuth redirect (Supabase does not persist it); the GitHub App Setup redirect
-(`?installation_id=...&setup_action=install`) is captured in `main.tsx` before React
-renders, stashed as a pending installation, and claimed by `Connect.tsx` once signed
-in — with a re-auth CTA when the provider token was lost. 401 responses sign the user
-out. `dashboard/.env.example` documents the four `VITE_*` vars.
-
-**Done — auth verified end-to-end (2026-07-14):** real Supabase GitHub-OAuth
-sign-in, `user_metadata.provider_id` claim shape, and the provider-token claim path
-all confirmed against a live session.
-
-**Done — hosting:** backend deployed on Railway (`backend/Dockerfile` +
-`backend/railway.json`, runbook in `backend/DEPLOY.md`); frontend deployed on Vercel.
-
----
-
-## 9. Backend API (current)
-
-- `POST /webhook` — single endpoint, GitHub event type read from `X-GitHub-Event`
-  header, signature-verified, dispatched to the matching handler in `handlers/`.
-- `GET /activity/recent` — cursor-paginated commit feed, filterable by repository,
-  contributor, agent, risk, confidence, and free-text search.
-- `GET /activity/summary` — aggregate counts (total commits, AI-authored share,
-  repositories, review-needed count) for the same filter set.
-- `GET /activity/facets` — distinct repositories/contributors/agents, for populating
-  filter dropdowns.
-- `GET /activity/agents` — per-agent rollup: commit share, repo/contributor coverage,
-  certain-vs-suspected attribution split, review-needed count, diff totals, last active.
-- `GET /repos/{owner}/{name}/timeline` — same cursor pattern, scoped to one repo.
-- `GET /repos/{owner}/{name}/prs/{number}` — single PR detail: pull request row, plus
-  its commits, CI runs, and reviews (four separate queries, not a join).
-- `POST /installations/claim` — links the authenticated user to a GitHub App
-  installation after the install redirect (verifies the GitHub OAuth provider token).
-- `GET /installations` — the authenticated user's installations, with repo counts.
-
-All read endpoints require a Supabase bearer token and are scoped to the caller's
-installation memberships (see §8).
-
-API responsibility stops at data normalization. Formatting, relative timestamps, color/
-risk presentation, and grouping are the dashboard's job, not the backend's.
-
----
-
-## 10. Frontend (React Dashboard)
-
-Stack: React 19, Vite, TypeScript, Tailwind (`@tailwindcss/vite`), TanStack Query.
-
-**Design principle: this is a ledger in glass, not a monitoring dashboard.**
-Row-based, typographically-driven layout with a premium glass-forward material system
-(see `DESIGN.md`). Dark-first; every container is a rounded frosted-glass panel
-(8% white fill, 14% white hairline border) whose *shell* owns the blur (12px large
-panels, 16px cap on small chrome — never nested, never on rows); dense data rows sit
-flat and contiguous on a ≥80%-opacity tint inside the glass so text stays crisp.
-Sentence-case labels, no uppercase tracked micro-headers. One aurora-blue action
-color; review/reviewed/approved keep their own state colors, always paired with
-text/icon, never color-alone. Glass collapses to opaque surfaces (identical layout)
-under `prefers-reduced-transparency`/`forced-colors`/no-`backdrop-filter`. No
-auto-refresh reflow — the feed must not jump while someone is reading it. No
-gamification (streaks, leaderboards, adoption scores). Motion is minimal and
-token-driven (DESIGN.md §5): feedback at 90–140ms, one-time entrance stagger, route
-fades; the wallpaper-grade gradient canvas (three cool fields, off-edge cores, quiet
-center, debanding grain) drifts imperceptibly on one transform-only layer (≥100s
-cycles, frozen under reduced motion) — no parallax, no perceptible background
-motion.
-
-**Current implementation (`dashboard/src/components/ActivityFeed.tsx`):**
-- **Activity view** — cursor-paginated ledger grouped by day, with filters (repository,
-  contributor, agent, risk, confidence) and debounced search. Selecting a row opens an
-  **Evidence Inspector** side panel: commit metadata, diff totals, the specific risk
-  signals that fired (not just the aggregate level), CI/review state, and a link out to
-  GitHub. Summary bar shows AI-authored %, review-needed count, and total commits, with
-  an expandable secondary detail row.
-- **Agents view** — per-agent breakdown table (share of total commits, repo/contributor
-  reach, certain-vs-suspected attribution %, review-needed count, diff totals, last
-  active). Clicking an agent returns to the Activity view pre-filtered to that agent —
-  there is no separate agents page/product, just a different lens on the same feed.
-- The tech-lead view is the superset. The individual-developer view is the same
-  component with a contributor filter pre-applied — these are not, and should not
-  become, two separate implementations.
-
-**Known gaps against the target:**
-- API base is env-driven (`VITE_API_BASE`, `dashboard/src/lib/api.ts`), defaulting to
-  `localhost:8000` for local dev; set to the Railway backend URL in the Vercel deploy.
-- `Connect`, `Repositories`, and `Settings` components now exist; the dashboard is no
-  longer activity-feed-only. `Connect`'s install link is env-driven
-  (`VITE_GITHUB_APP_INSTALL_URL`, set to the real App slug in the Vercel deploy; falls
-  back to the GitHub Apps directory only when unset). `Connect` performs the installation
-  claim (pending id from the
-  Setup redirect → `POST /installations/claim`) and lists connected installations from
-  `GET /installations`; `Settings` shows the signed-in user, sign-out, and live
-  installation state.
-- `fetchJson` attaches the Supabase session token when configured — see §8. Build is
-  `tsc -b && vite build` (typecheck enforced).
-- No live/WebSocket updates — the backend has no push mechanism yet, and the frontend
-  should not grow WebSocket handling ahead of the backend emitting anything.
-
----
-
-## 11. Hard Conventions — Do Not Deviate Without Explicit Discussion
-
-1. Raw SQL via `text()`, not an ORM model layer.
+1. Raw SQL via `text()`, not an ORM model layer. The schema was designed in SQL first.
 2. `connect_args={"statement_cache_size": 0}` on the async engine — required for
-   PgBouncer transaction mode. Never remove.
+   PgBouncer transaction mode (no prepared statements). Never remove.
 3. All incoming GitHub timestamps go through a local `parse_dt()` helper
-   (`datetime.fromisoformat(value.replace("Z", "+00:00"))`). It's currently duplicated
-   per handler file — consolidating it into a shared util is fine, but don't do it
-   silently as a side effect of an unrelated change.
-4. `database.py` (engine/session) and `db/` (query helpers) intentionally don't share a
-   name — this was a prior bug fix. Do not rename `db/` to `database/`.
+   (`datetime.fromisoformat(value.replace("Z", "+00:00"))`). It's duplicated per
+   handler file — consolidating it is fine, but not silently as a side effect of an
+   unrelated change.
+4. `database.py` (engine/session) and `db/` (query helpers) intentionally don't share
+   a name — prior bug fix. Do not rename `db/` to `database/`.
 5. Push webhook commit objects have `author.name`/`author.email` but **no**
-   `author.login`. Always use `.get("login")`, never `["login"]`, when reading commit
-   author identity from push payloads.
-6. Cursor-based pagination for all feed/timeline endpoints — never offset.
-7. Idempotent upserts on GitHub's stable IDs for every webhook handler.
-8. Windows / Python 3.13 dev environment — be mindful of path separators and shell
-   syntax in any commands you suggest running.
-9. Schema and infrastructure changes are joint decisions with a collaborator who isn't
-   in this workspace — surface the change clearly rather than applying it silently.
-10. Don't scaffold v2 risk scoring, WebSocket live-feed, or VS Code extension
-    reactivation preemptively — these are deferred by design, not by neglect.
+   `author.login`. Always `.get("login")`, never `["login"]`.
+6. Cursor-based pagination (`(pushed_at, id)` tuple comparison) for all feed/timeline
+   endpoints — never offset.
+7. Idempotent upserts on GitHub's stable IDs (`github_pr_number`+`repo_id`,
+   `github_run_id`, `github_review_id`, commit `sha`) for every webhook handler —
+   GitHub redelivers webhooks.
+8. SQLAlchemy `Row` objects must be converted with `dict(row._mapping)` before FastAPI
+   can serialize them — this has bitten every new endpoint; do it proactively.
+9. Windows / Python 3.13 dev environment — mind path separators and shell syntax.
+10. Schema and infrastructure changes are joint decisions with a DB collaborator who
+    isn't in this workspace — surface migrations clearly, never apply silently.
+11. Soft-delete convention: removable state gets a `removed_at`-style column and a
+    `WHERE ... IS NULL` guard on default reads, never hard deletes.
+12. Don't scaffold v2 ML risk scoring, WebSocket live-feed, or VS Code extension
+    reactivation preemptively — deferred by design, not by neglect.
 
-## 12. Launch Status — Done / Next
+---
 
-Snapshot of where the build stands against the launch criteria in §2. Update this
-section as items move.
+## 4. v2 — Current Focus: Contributor Access
 
-**Done since v1 schema:**
-- GitHub App token flow — installation JWT → cached, per-installation-locked access
-  tokens (`github_app.py`), shared retrying httpx client (`github_client.py`). Replaces
-  the static-PAT path (a fallback remains, §7).
-- `installations` table + `installation`/`installation_repositories` webhooks, with
-  suspend/unsuspend/delete soft-delete and repo linkage (`003_github_app.sql`).
-- Webhook installation guard in `main.py` — ignores untracked repos, 409s on
-  missing/suspended/deleted installs before any handler runs.
-- git-ai enhanced attribution actually implemented via the Git Data API ref-walk (§5).
-- Backend auth — Supabase JWT verification on all read routers (`auth.py`), env-driven
-  CORS, `AUTH_DISABLED` dev escape hatch.
-- Dashboard API base is env-driven; `Connect`/`Repositories`/`Settings` views added.
-- `004_launch_hardening.sql` applied.
+**Problem:** v1 entitlement is installation-level, and the only path into
+`installation_members` is `POST /installations/claim`, driven by the App install
+redirect — a flow only the installer (org owner / repo admin) ever goes through. A
+contributor/collaborator on the same repos has no way to see any Flagger data, even
+though GitHub itself grants them access to those repos.
 
-**Launched.** All launch criteria in §2 are met: frontend auth wiring, row-level
-entitlement scoping, reachable `"low"` risk, recompute on later review/CI events, and
-the GitHub App onboarding flow are all shipped; the real GitHub App is created with its
-slug wired into `VITE_GITHUB_APP_INSTALL_URL`; Supabase GitHub OAuth is enabled (auth
-verified end-to-end 2026-07-14, §8); migrations 002–005 are applied to production; the
-backend runs on Railway and the dashboard on Vercel (§8).
+**Goal:** a signed-in user who is a collaborator on repos covered by an existing
+Flagger installation gets appropriately scoped access without a new installation.
 
-Deferred by design (do not build ahead of need): v2 risk scoring, WebSocket live feed,
-VS Code extension (§11.10).
+**Design (consulted with Codex, 2026-07-17 — verify the flagged items live before
+building):**
+
+- **GitHub primitives:** `GET /user/installations` (user OAuth token) lists
+  installations the user has explicit access to — including via repo collaboration,
+  not just ownership/org membership. `GET /user/installations/{id}/repositories`
+  returns exactly the subset of that installation's repos the user can access, with
+  per-repo `permissions`. Grant from the per-repo endpoint, never installation-wide
+  from the first endpoint alone.
+- **Schema delta (migration 006 — flag to the DB collaborator before applying):** new
+  `repo_members` table — `(repo_id, supabase_user_id)` unique, `github_login`,
+  `role` default `'member'`, `github_permission`, `access_checked_at`,
+  `access_expires_at`, `removed_at` soft delete, RLS enabled. A separate table, not a
+  nullable repo scope on `installation_members` — installation-wide admin grants and
+  repo-scoped collaborator grants are different things and a nullable scope column is
+  easy to get wrong in the entitlement predicate.
+- **Endpoint:** `POST /installations/sync-access` — same identity binding as claim
+  (provider token must match the JWT's GitHub id), walks `GET /user/installations`,
+  intersects with tracked installations, walks each
+  `/user/installations/{id}/repositories`, intersects with tracked repos, upserts
+  `repo_members` rows (`role='member'`, `access_expires_at = NOW() + 24h`), and
+  soft-removes grants no longer returned. Dashboard calls it after sign-in/session
+  restore.
+- **Entitlement predicate:** `entitlement_filter` becomes a UNION of the existing
+  `installation_members` subquery and a `repo_members` subquery
+  (`removed_at IS NULL AND access_expires_at > NOW()`), still one composable
+  IN-predicate, one round-trip.
+- **Revocation:** TTL + re-sync on session start. No webhook-driven revocation —
+  collaborator add/remove isn't cleanly observable with our App permissions, and
+  bounded staleness (24h TTL) is acceptable for v2's first cut.
+- **Roles:** `admin` (installation-wide, from claim) vs `member` (repo-scoped, from
+  sync). Role gates nothing yet beyond which table grants the row — metadata until an
+  admin-only action exists.
+- **`GET /installations`** gains repo-membership-reachable installations, with repo
+  counts scoped to what the caller can actually see.
+
+**Verify live before building** (Codex flagged these as untested edge behavior):
+1. `GET /user/installations` includes an org installation when the user is only an
+   outside collaborator on one private repo.
+2. `/user/installations/{id}/repositories` returns the collaborator-visible subset for
+   both `all` and `selected` repository_selection.
+3. Supabase's `provider_token` works against these endpoints (the claim flow already
+   depends on this assumption and was verified 2026-07-14, so likely fine).
+
+Deferred by design (do not build ahead of need): v2 ML risk scoring, WebSocket live
+feed, VS Code extension.
+
+---
 
 ## Non-Goals
 
