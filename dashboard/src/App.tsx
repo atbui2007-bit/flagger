@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import ActivityFeed, { initialFilters, type Filters } from './components/ActivityFeed'
 import Repositories from './components/Repositories'
 import PullRequestDetail from './components/PullRequestDetail'
 import Connect from './components/Connect'
 import Settings from './components/Settings'
 import Login from './components/Login'
-import { useSession, getPendingInstallation, clearPendingInstallation } from './lib/auth'
+import { useSession, getPendingInstallation, clearPendingInstallation, getProviderToken } from './lib/auth'
+import { fetchJson } from './lib/api'
+
+let accessSyncStarted = false
 
 type Route = { name: 'activity' | 'agents' | 'repositories' | 'settings' | 'connect' | 'login' } | { name: 'pr'; owner: string; repository: string; number: string }
 function parseRoute(): Route {
@@ -25,6 +29,7 @@ function getInitialTheme(): 'light' | 'dark' {
 
 export default function App() {
   const auth = useSession()
+  const queryClient = useQueryClient()
   const [route, setRoute] = useState<Route>(parseRoute)
   const [filters, setFilters] = useState<Filters>(initialFilters)
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme)
@@ -39,6 +44,23 @@ export default function App() {
     if (auth.status === 'signed-in') navigate('/connect')
     if (auth.status === 'disabled') { clearPendingInstallation(); navigate('/connect') } // claim is unavailable without auth
   }, [auth.status])
+  useEffect(() => {
+    if (auth.status !== 'signed-in' || accessSyncStarted) return
+    const providerToken = getProviderToken()
+    if (!providerToken) return
+    accessSyncStarted = true
+    void fetchJson('/installations/sync-access', {
+      method: 'POST',
+      json: { provider_token: providerToken },
+    }).then(() => {
+      void queryClient.invalidateQueries({ queryKey: ['installations'] })
+      void queryClient.invalidateQueries({ queryKey: ['activity'] })
+      void queryClient.invalidateQueries({ queryKey: ['activity-summary'] })
+      void queryClient.invalidateQueries({ queryKey: ['activity-facets'] })
+      void queryClient.invalidateQueries({ queryKey: ['agent-breakdown'] })
+      void queryClient.invalidateQueries({ queryKey: ['repository-summary'] })
+    }).catch(() => {})
+  }, [auth.status, queryClient])
   const updateSearch = (value: string) => { setFilters((current) => ({ ...current, search: value })); if (route.name !== 'activity') navigate('/') }
   const viewRepository = (repository: string) => { setFilters((current) => ({ ...current, repository })); navigate('/') }
   const routeKey = route.name === 'pr' ? `${route.name}-${route.number}` : route.name

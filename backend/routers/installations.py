@@ -19,6 +19,10 @@ class ClaimRequest(BaseModel):
     provider_token: str
 
 
+class SyncAccessRequest(BaseModel):
+    provider_token: str
+
+
 async def _github_json(method, path, token):
     response = await github_request(method, path, token=token)
     if response.status_code == 401:
@@ -31,18 +35,35 @@ async def _github_json(method, path, token):
     return response.json()
 
 
+async def _paginate_user_collection(path, key, provider_token):
+    items = []
+    page = 1
+    while True:
+        body = await _github_json(
+            "GET", f"{path}?per_page=100&page={page}", provider_token
+        )
+        page_items = body.get(key, [])
+        items.extend(page_items)
+        if len(page_items) < 100:
+            return items
+        page += 1
+
+
 async def _find_user_installation(installation_id, provider_token):
     # /user/installations lists installations the token's GitHub user can access.
-    for page in range(1, 11):
-        body = await _github_json(
-            "GET", f"/user/installations?per_page=100&page={page}", provider_token
-        )
-        items = body.get("installations", [])
-        for item in items:
-            if item.get("id") == installation_id:
-                return item
-        if len(items) < 100:
-            break
+    installations = await _paginate_user_collection(
+        "/user/installations", "installations", provider_token
+    )
+    for installation in installations:
+        if installation.get("id") == installation_id:
+            return installation
+    return None
+
+
+def _highest_permission(permissions):
+    for permission in ("admin", "maintain", "push", "triage", "pull"):
+        if permissions.get(permission):
+            return permission
     return None
 
 
@@ -107,6 +128,130 @@ async def claim(
     }
 
 
+@router.post("/sync-access")
+async def sync_access(
+    body: SyncAccessRequest,
+    user: CurrentUser = Depends(current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    if user.auth_disabled:
+        raise HTTPException(status_code=400, detail="sync unavailable when auth is disabled")
+
+    github_user = await _github_json("GET", "/user", body.provider_token)
+    if user.github_id is None or str(github_user.get("id")) != str(user.github_id):
+        raise HTTPException(status_code=403, detail="token does not match authenticated user")
+
+    user_installations = await _paginate_user_collection(
+        "/user/installations", "installations", body.provider_token
+    )
+    tracked_result = await session.execute(text("""
+        SELECT id, github_installation_id
+        FROM installations
+        WHERE deleted_at IS NULL
+    """))
+    tracked = {
+        row.github_installation_id: row.id
+        for row in tracked_result.fetchall()
+    }
+
+    granted = 0
+    removed = 0
+    failed_installation_ids = []
+    for installation in user_installations:
+        github_installation_id = installation.get("id")
+        installation_id = tracked.get(github_installation_id)
+        if installation_id is None:
+            continue
+
+        repos_result = await session.execute(text("""
+            SELECT id, github_repo_id
+            FROM repos
+            WHERE installation_id = :installation_id
+              AND github_repo_id IS NOT NULL
+              AND removed_at IS NULL
+        """), {"installation_id": installation_id})
+        tracked_repos = {
+            row.github_repo_id: row.id
+            for row in repos_result.fetchall()
+        }
+
+        try:
+            github_repos = await _paginate_user_collection(
+                f"/user/installations/{github_installation_id}/repositories",
+                "repositories",
+                body.provider_token,
+            )
+        except HTTPException:
+            failed_installation_ids.append(github_installation_id)
+            continue
+
+        grants = []
+        for github_repo in github_repos:
+            repo_id = tracked_repos.get(github_repo.get("id"))
+            if repo_id is None:
+                continue
+            grants.append({
+                "repo_id": repo_id,
+                "supabase_user_id": user.id,
+                "github_login": github_user["login"],
+                "github_permission": _highest_permission(github_repo.get("permissions") or {}),
+            })
+
+        if grants:
+            upsert_repo_member = text("""
+                INSERT INTO repo_members (
+                    repo_id, supabase_user_id, github_login, role,
+                    github_permission, access_checked_at, access_expires_at
+                )
+                VALUES (
+                    :repo_id, :supabase_user_id, :github_login, 'member',
+                    :github_permission, NOW(), NOW() + interval '24 hours'
+                )
+                ON CONFLICT (repo_id, supabase_user_id) DO UPDATE SET
+                    github_login = EXCLUDED.github_login,
+                    role = 'member',
+                    github_permission = EXCLUDED.github_permission,
+                    access_checked_at = NOW(),
+                    access_expires_at = NOW() + interval '24 hours',
+                    removed_at = NULL
+            """)
+            for grant in grants:
+                await session.execute(upsert_repo_member, grant)
+            granted += len(grants)
+
+        removal_params = {
+            "supabase_user_id": user.id,
+            "installation_id": installation_id,
+        }
+        removal_sql = """
+            UPDATE repo_members
+            SET removed_at = NOW()
+            WHERE supabase_user_id = :supabase_user_id
+              AND removed_at IS NULL
+              AND repo_id IN (
+                  SELECT id FROM repos
+                  WHERE installation_id = :installation_id
+                    AND removed_at IS NULL
+              )
+        """
+        if grants:
+            placeholders = []
+            for index, grant in enumerate(grants):
+                key = f"granted_repo_id_{index}"
+                placeholders.append(f":{key}")
+                removal_params[key] = grant["repo_id"]
+            removal_sql += f" AND repo_id NOT IN ({', '.join(placeholders)})"
+        removal_result = await session.execute(text(removal_sql), removal_params)
+        removed += removal_result.rowcount
+
+    await session.commit()
+    response = {"status": "ok", "granted": granted, "removed": removed}
+    if failed_installation_ids:
+        response["status"] = "partial"
+        response["failed_installation_ids"] = failed_installation_ids
+    return response
+
+
 @router.get("")
 async def list_installations(
     user: CurrentUser = Depends(current_user),
@@ -125,12 +270,34 @@ async def list_installations(
     else:
         result = await session.execute(text("""
             SELECT i.github_installation_id, i.account_login, i.account_type,
-                   i.installed_at, i.suspended_at, i.deleted_at, im.role,
-                   (SELECT COUNT(*) FROM repos r
-                     WHERE r.installation_id = i.id AND r.removed_at IS NULL) AS repo_count
-            FROM installation_members im
-            JOIN installations i ON im.installation_id = i.id
-            WHERE im.supabase_user_id = :auth_user_id AND im.removed_at IS NULL
+                   i.installed_at, i.suspended_at, i.deleted_at,
+                   COALESCE(im.role, 'member') AS role,
+                   CASE WHEN im.role = 'admin' THEN
+                       (SELECT COUNT(*) FROM repos r
+                         WHERE r.installation_id = i.id AND r.removed_at IS NULL)
+                   ELSE
+                       (SELECT COUNT(*) FROM repos r
+                        JOIN repo_members rm ON rm.repo_id = r.id
+                         WHERE r.installation_id = i.id
+                           AND r.removed_at IS NULL
+                           AND rm.supabase_user_id = :auth_user_id
+                           AND rm.removed_at IS NULL
+                           AND rm.access_expires_at > NOW())
+                   END AS repo_count
+            FROM installations i
+            LEFT JOIN installation_members im
+              ON im.installation_id = i.id
+             AND im.supabase_user_id = :auth_user_id
+             AND im.removed_at IS NULL
+            WHERE im.id IS NOT NULL OR EXISTS (
+                SELECT 1 FROM repos r
+                JOIN repo_members rm ON rm.repo_id = r.id
+                WHERE r.installation_id = i.id
+                  AND r.removed_at IS NULL
+                  AND rm.supabase_user_id = :auth_user_id
+                  AND rm.removed_at IS NULL
+                  AND rm.access_expires_at > NOW()
+            )
             ORDER BY i.installed_at DESC
         """), {"auth_user_id": user.id})
     return {"data": [dict(row._mapping) for row in result.fetchall()]}

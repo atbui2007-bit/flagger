@@ -1,4 +1,4 @@
-"""Verify that migrations 002, 003, and 004 are present in the target database."""
+"""Verify that the expected migrated schema is present in the target database."""
 
 import asyncio
 import sys
@@ -31,6 +31,18 @@ EXPECTED_COLUMNS = {
     "file_changes": {
         "created_at": "timestamp with time zone",
         "updated_at": "timestamp with time zone",
+    },
+    "repo_members": {
+        "id": "uuid",
+        "repo_id": "uuid",
+        "supabase_user_id": "uuid",
+        "github_login": "text",
+        "role": "text",
+        "github_permission": "text",
+        "access_checked_at": "timestamp with time zone",
+        "access_expires_at": "timestamp with time zone",
+        "created_at": "timestamp with time zone",
+        "removed_at": "timestamp with time zone",
     },
 }
 
@@ -71,6 +83,10 @@ INDEX_CHECKS = {
         "repos",
         ('using gin', 'full_name gin_trgm_ops'),
     ),
+    "repo_members (supabase_user_id) index": (
+        "repo_members",
+        ('using btree', '(supabase_user_id)'),
+    ),
 }
 
 
@@ -86,7 +102,7 @@ async def main():
             SELECT table_name, column_name, data_type, is_nullable, column_default
             FROM information_schema.columns
             WHERE table_schema = 'public'
-              AND table_name IN ('installations', 'repos', 'file_changes')
+              AND table_name IN ('installations', 'repos', 'file_changes', 'repo_members')
         """))).mappings().all()
         columns = {
             (row["table_name"], row["column_name"]): row
@@ -113,7 +129,7 @@ async def main():
             SELECT tablename, indexdef
             FROM pg_indexes
             WHERE schemaname = 'public'
-              AND tablename IN ('commits', 'repos')
+              AND tablename IN ('commits', 'repos', 'repo_members')
         """))).mappings().all()
         indexes = [
             (row["tablename"], row["indexdef"].lower())

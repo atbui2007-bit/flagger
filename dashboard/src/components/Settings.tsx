@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { API_BASE, fetchJson, relativeDate } from '../lib/api'
 import { supabase } from '../lib/supabase'
-import { useSession } from '../lib/auth'
+import { getProviderToken, useSession } from '../lib/auth'
 
 interface Installation {
   github_installation_id: number
@@ -21,6 +21,13 @@ export default function Settings() {
   })
   const user = auth.status === 'signed-in' ? auth.session.user : null
   const githubLogin = (user?.user_metadata?.user_name ?? user?.user_metadata?.preferred_username) as string | undefined
+  const reconnect = () => {
+    if (!supabase) return
+    void supabase.auth.signInWithOAuth({
+      provider: 'github',
+      options: { redirectTo: location.origin, scopes: 'read:user' },
+    })
+  }
   return <main className="settings-page">
   <header className="page-heading"><h1>Settings</h1><p>Account, connection, and workspace details.</p></header>
   <section className="settings-section"><h2>Account</h2>
@@ -38,6 +45,7 @@ export default function Settings() {
       <dd>{installation.suspended_at ? 'Suspended' : `${installation.repo_count} ${installation.repo_count === 1 ? 'repository' : 'repositories'} · installed ${relativeDate(installation.installed_at)}`}</dd>
     </div>)}</dl> : <dl><div><dt>Installation</dt><dd>No GitHub App installation on record</dd></div></dl>}
     <a href="#/connect">Manage → Connect GitHub</a>
+    {user && !getProviderToken() && <button type="button" className="icon-button" onClick={reconnect}>Reconnect GitHub to refresh repository access</button>}
   </section>
   <section className="settings-section"><h2>Workspace</h2><dl><div><dt>API endpoint</dt><dd className="mono">{API_BASE}</dd></div><div><dt>Theme</dt><dd>Follows system preference</dd></div></dl></section>
   </main>

@@ -227,6 +227,12 @@ Details live in git history if ever needed.
 
 ## 4. v2 — Current Focus: Contributor Access
 
+**Status (2026-07-19): implemented; migration 006 applied to production.** Backend
+(`/installations/sync-access`, UNION'd `entitlement_filter`, `get_repo`,
+membership-aware `GET /installations`) and dashboard (app-boot sync in `App.tsx`,
+reconnect action in `Settings.tsx`) are in the tree. The three "verify live" items
+below remain open — first collaborator sign-in after deploy is the E2E test.
+
 **Problem:** v1 entitlement is installation-level, and the only path into
 `installation_members` is `POST /installations/claim`, driven by the App install
 redirect — a flow only the installer (org owner / repo admin) ever goes through. A

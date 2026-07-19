@@ -74,13 +74,18 @@ async def current_user(claims: dict = Depends(require_user)) -> CurrentUser:
     )
 
 
-# Entitlement: a user sees commits for repos whose installation they are an
-# active member of. Kept as an IN-subquery so it composes with the existing
-# clauses/params pattern in one round-trip (PgBouncer transaction mode).
+# Entitlement: a user sees commits through either an active installation-wide
+# membership or a live repo-scoped membership. Kept as an IN-subquery so it
+# composes with the existing clauses/params pattern in one round-trip.
 ENTITLED_COMMITS_PREDICATE = """commits.repo_id IN (
     SELECT r.id FROM repos r
     JOIN installation_members im ON im.installation_id = r.installation_id
     WHERE im.supabase_user_id = :auth_user_id AND im.removed_at IS NULL
+    UNION
+    SELECT rm.repo_id FROM repo_members rm
+    WHERE rm.supabase_user_id = :auth_user_id
+      AND rm.removed_at IS NULL
+      AND rm.access_expires_at > NOW()
 )"""
 
 

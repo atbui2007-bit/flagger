@@ -25,11 +25,20 @@ async def get_repo(full_name, session, user=None):
              WHERE r.full_name = :full_name AND r.removed_at IS NULL"""
     params = {"full_name": full_name}
     if user is not None and not user.auth_disabled:
-        sql += """ AND EXISTS (
-                SELECT 1 FROM installation_members im
-                WHERE im.installation_id = r.installation_id
-                  AND im.supabase_user_id = :auth_user_id
-                  AND im.removed_at IS NULL
+        sql += """ AND (
+                EXISTS (
+                    SELECT 1 FROM installation_members im
+                    WHERE im.installation_id = r.installation_id
+                      AND im.supabase_user_id = :auth_user_id
+                      AND im.removed_at IS NULL
+                )
+                OR EXISTS (
+                    SELECT 1 FROM repo_members rm
+                    WHERE rm.repo_id = r.id
+                      AND rm.supabase_user_id = :auth_user_id
+                      AND rm.removed_at IS NULL
+                      AND rm.access_expires_at > NOW()
+                )
             )"""
         params["auth_user_id"] = user.id
     result = await session.execute(text(sql), params)
