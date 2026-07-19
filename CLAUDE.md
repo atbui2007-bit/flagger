@@ -227,11 +227,14 @@ Details live in git history if ever needed.
 
 ## 4. v2 — Current Focus: Contributor Access
 
-**Status (2026-07-19): implemented; migration 006 applied to production.** Backend
-(`/installations/sync-access`, UNION'd `entitlement_filter`, `get_repo`,
-membership-aware `GET /installations`) and dashboard (app-boot sync in `App.tsx`,
-reconnect action in `Settings.tsx`) are in the tree. The three "verify live" items
-below remain open — first collaborator sign-in after deploy is the E2E test.
+**Status (2026-07-19): shipped and verified live.** Migration 006 applied to
+production; backend (`/installations/sync-access`, UNION'd `entitlement_filter`,
+`get_repo`, membership-aware `GET /installations`) and dashboard (app-boot sync in
+`App.tsx`, reconnect action in `Settings.tsx`) deployed. E2E-verified 2026-07-19: a
+collaborator (non-installer) signed in and received correctly scoped repo access via
+sync — the provider_token and `/user/installations` assumptions hold in production.
+Outside-collaborator-on-private-repo remains the one edge from the "verify live"
+list not yet exercised.
 
 **Problem:** v1 entitlement is installation-level, and the only path into
 `installation_members` is `POST /installations/claim`, driven by the App install
