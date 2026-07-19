@@ -33,20 +33,25 @@ export default function Settings() {
   <section className="settings-section"><h2>Account</h2>
     {user ? <>
       <dl><div><dt>GitHub</dt><dd>{githubLogin ?? 'Unknown'}</dd></div><div><dt>Email</dt><dd>{user.email ?? 'Not provided'}</dd></div></dl>
-      <button type="button" className="icon-button" onClick={() => { if (supabase) void supabase.auth.signOut() }}>Sign out</button>
+      <div className="settings-actions"><button type="button" className="ghost-button" onClick={() => { if (supabase) void supabase.auth.signOut() }}>Sign out</button></div>
     </> : <>
-      <dl><div><dt>Name</dt><dd>Not signed in</dd></div><div><dt>Email</dt><dd>Not signed in</dd></div></dl>
-      <p>Authentication ships with the GitHub App integration. <a href="#/login">Sign in</a></p>
+      <dl><div><dt>GitHub</dt><dd>Not signed in</dd></div><div><dt>Email</dt><dd>Not signed in</dd></div></dl>
+      <p>Sign in with GitHub to see your account and connection details. <a href="#/login">Sign in</a></p>
     </>}
   </section>
   <section className="settings-section"><h2>GitHub connection</h2>
-    {installations.data?.data.length ? <dl>{installations.data.data.map((installation) => <div key={installation.github_installation_id}>
+    {installations.isPending && <div className="ledger-skeleton"><span /></div>}
+    {installations.isError && <p className="quiet-copy">Couldn't load installations — sign in and try again.</p>}
+    {installations.data && (installations.data.data.length ? <dl>{installations.data.data.map((installation) => <div key={installation.github_installation_id}>
       <dt>{installation.account_login}</dt>
       <dd>{installation.suspended_at ? 'Suspended' : `${installation.repo_count} ${installation.repo_count === 1 ? 'repository' : 'repositories'} · installed ${relativeDate(installation.installed_at)}`}</dd>
-    </div>)}</dl> : <dl><div><dt>Installation</dt><dd>No GitHub App installation on record</dd></div></dl>}
-    <a href="#/connect">Manage → Connect GitHub</a>
-    {user && !getProviderToken() && <button type="button" className="icon-button" onClick={reconnect}>Reconnect GitHub to refresh repository access</button>}
+    </div>)}</dl> : <dl><div><dt>Installation</dt><dd>No GitHub App installation on record</dd></div></dl>)}
+    <div className="settings-actions"><a href="#/connect">Manage installations <span aria-hidden="true">→</span></a></div>
+    {user && !getProviderToken() && <div className="settings-actions">
+      <button type="button" className="ghost-button" onClick={reconnect}>Reconnect GitHub</button>
+      <p className="quiet-copy">Your GitHub session has expired, so repository access can't refresh. Reconnecting restores it.</p>
+    </div>}
   </section>
-  <section className="settings-section"><h2>Workspace</h2><dl><div><dt>API endpoint</dt><dd className="mono">{API_BASE}</dd></div><div><dt>Theme</dt><dd>Follows system preference</dd></div></dl></section>
+  <section className="settings-section"><h2>Workspace</h2><dl><div><dt>API endpoint</dt><dd className="mono">{API_BASE}</dd></div><div><dt>Theme</dt><dd>Set with the sidebar toggle</dd></div></dl></section>
   </main>
 }
