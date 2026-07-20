@@ -2,6 +2,8 @@ import { supabase } from './supabase'
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000'
 
+export const GIT_AI_URL = 'https://github.com/git-ai-project/git-ai'
+
 export async function fetchJson<T>(path: string, init?: { method?: string; json?: unknown }): Promise<T> {
   // ngrok's free-tier domains serve an HTML interstitial to browser-looking
   // requests unless this header is present; irrelevant once on a real host.

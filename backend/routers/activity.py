@@ -152,7 +152,10 @@ async def summary(
             COUNT(*) AS total_commits,
             COUNT(*) FILTER (WHERE LOWER(commits.agent_type) NOT IN ('human', 'unknown')) AS ai_authored_commits,
             COUNT(DISTINCT commits.repo_id) AS repositories,
-            COUNT(*) FILTER (WHERE commits.risk_no_review = TRUE) AS review_needed
+            COUNT(*) FILTER (WHERE commits.risk_no_review = TRUE) AS review_needed,
+            COUNT(*) FILTER (
+                WHERE LOWER(commits.attribution_confidence) IN ('certain', 'high')
+            ) AS certain_attribution
         FROM commits
         JOIN repos ON commits.repo_id = repos.id
         {where_clause}
@@ -167,6 +170,7 @@ async def summary(
         "ai_share_percent": round((ai_authored / total) * 100, 1) if total else 0,
         "repositories": row["repositories"] or 0,
         "review_needed": row["review_needed"] or 0,
+        "certain_attribution": row["certain_attribution"] or 0,
     }
 
 

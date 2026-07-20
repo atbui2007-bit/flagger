@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { API_BASE, fetchJson, relativeDate } from '../lib/api'
+import { API_BASE, fetchJson, GIT_AI_URL, relativeDate } from '../lib/api'
 import { supabase } from '../lib/supabase'
 import { getProviderToken, useSession } from '../lib/auth'
 
@@ -51,6 +51,10 @@ export default function Settings() {
       <button type="button" className="ghost-button" onClick={reconnect}>Reconnect GitHub</button>
       <p className="quiet-copy">Your GitHub session has expired, so repository access can't refresh. Reconnecting restores it.</p>
     </div>}
+  </section>
+  <section className="settings-section"><h2>Attribution</h2>
+    <p className="quiet-copy">Flagger reads git-ai notes when a repo has them, upgrading attribution from suspected heuristics to certain, line-level provenance. git-ai is free, open source, and installs in one line per developer — no account required.</p>
+    <div className="settings-actions"><a href={GIT_AI_URL} target="_blank" rel="noreferrer">Get git-ai on GitHub <span aria-hidden="true">↗</span></a></div>
   </section>
   <section className="settings-section"><h2>Workspace</h2><dl><div><dt>API endpoint</dt><dd className="mono">{API_BASE}</dd></div><div><dt>Theme</dt><dd>Set with the sidebar toggle</dd></div></dl></section>
   </main>

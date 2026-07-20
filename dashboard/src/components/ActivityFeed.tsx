@@ -1,6 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { fetchJson } from '../lib/api'
+import { fetchJson, GIT_AI_URL } from '../lib/api'
 
 interface Commit {
   id: string
@@ -39,6 +39,7 @@ interface SummaryResponse {
   ai_share_percent: number
   repositories: number
   review_needed: number
+  certain_attribution: number
 }
 
 interface FacetsResponse {
@@ -263,6 +264,7 @@ function EvidenceInspector({ commit, closing, onClose, onExitComplete }: { commi
         <h3>Links</h3>
         <a href={commit.url} target="_blank" rel="noreferrer">View commit <span aria-hidden="true">↗</span></a>
         {commit.pr_number != null && <a href={`#/repos/${commit.full_name}/pr/${commit.pr_number}`}>View pull request <span aria-hidden="true">→</span></a>}
+        {commit.attribution_source !== 'git_ai_notes' && <a href={GIT_AI_URL} target="_blank" rel="noreferrer">Get certain attribution with git-ai <span aria-hidden="true">↗</span></a>}
       </section>
     </aside>
     </div>
@@ -400,6 +402,8 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
   const summaryTotalCommits = summary.data?.total_commits ?? 0
   const summaryRepositories = summary.data?.repositories ?? 0
   const summaryAgentCommits = summary.data?.ai_authored_commits ?? 0
+  const summaryCertain = summary.data?.certain_attribution ?? 0
+  const suspectedShare = summaryTotalCommits ? Math.round(((summaryTotalCommits - summaryCertain) / summaryTotalCommits) * 100) : 0
   const activityErrorMessage = activity.error instanceof Error ? activity.error.message : 'Unknown error'
   let leadSentence = `${greeting} Loading review summary…`
   if (summary.isError) {
@@ -452,6 +456,12 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
               {selected && <span className="update-status" aria-live="polite">Updates paused while reviewing</span>}
             </div>
           </div>
+
+          {summary.isSuccess && summaryTotalCommits > 0 && suspectedShare > 0 && (
+            <p className="gitai-hint">
+              {suspectedShare}% of commits in this view rely on suspected attribution. Repos using <a href={GIT_AI_URL} target="_blank" rel="noreferrer">git-ai</a> record certain, line-level provenance automatically — free, open source, no account.
+            </p>
+          )}
 
           <div className="filters" aria-label="Activity filters">
             <label className="filter-pill"><span className="sr-only">Repository</span><select value={filters.repository} onChange={(e) => updateFilter('repository', e.target.value)}><option value="">All repositories</option>{facets.data?.repositories.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
