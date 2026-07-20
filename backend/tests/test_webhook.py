@@ -11,7 +11,12 @@ from database import get_db
 
 TEST_SECRET = "test-webhook-secret"
 PUSH_PAYLOAD = {
-    "repository": {"full_name": "owner/repo", "default_branch": "main"},
+    "repository": {
+        "id": 7,
+        "full_name": "owner/repo",
+        "default_branch": "main",
+        "owner": {"login": "owner"},
+    },
     "ref": "refs/heads/main",
     "commits": [],
 }
@@ -75,8 +80,10 @@ def active_repo():
         id="repo-id",
         installation_id="installation-id",
         removed_at=None,
+        full_name="owner/repo",
         suspended_at=None,
         deleted_at=None,
+        github_installation_id=None,
     )
 
 

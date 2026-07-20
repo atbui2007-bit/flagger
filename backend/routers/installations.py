@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import CurrentUser, current_user
 from database import get_db
+import github_app
 from github_client import github_request
 from log_config import get_logger
 
@@ -67,6 +68,75 @@ def _highest_permission(permissions):
     return None
 
 
+def _claim_access_level(account_type, account_login, github_user_login, full_repos, user_repos):
+    if account_type == "User":
+        return "admin" if account_login == github_user_login else "member"
+
+    full_repo_ids = {repo.get("id") for repo in full_repos}
+    user_repos_by_id = {repo.get("id"): repo for repo in user_repos}
+    # Empty coverage list (zero-repo installation or API hiccup) must never
+    # read as "full coverage" — issubset of the empty set is vacuously true.
+    if not full_repo_ids or not full_repo_ids.issubset(user_repos_by_id.keys()):
+        return "member"
+    for repo_id in full_repo_ids:
+        permissions = user_repos_by_id[repo_id].get("permissions") or {}
+        if not permissions.get("admin"):
+            return "member"
+    return "admin"
+
+
+async def _paginate_installation_collection(path, key, installation_token):
+    items = []
+    page = 1
+    while True:
+        body = await _github_json(
+            "GET", f"{path}?per_page=100&page={page}", installation_token
+        )
+        page_items = body.get(key, [])
+        items.extend(page_items)
+        if len(page_items) < 100:
+            return items
+        page += 1
+
+
+async def _repo_member_grants_for_installation(session, installation_id):
+    repos_result = await session.execute(text("""
+        SELECT id, github_repo_id
+        FROM repos
+        WHERE installation_id = :installation_id
+          AND github_repo_id IS NOT NULL
+          AND removed_at IS NULL
+    """), {"installation_id": installation_id})
+    return {
+        row.github_repo_id: row.id
+        for row in repos_result.fetchall()
+    }
+
+
+async def _upsert_repo_member_grants(session, grants):
+    if not grants:
+        return
+    upsert_repo_member = text("""
+        INSERT INTO repo_members (
+            repo_id, supabase_user_id, github_login, role,
+            github_permission, access_checked_at, access_expires_at
+        )
+        VALUES (
+            :repo_id, :supabase_user_id, :github_login, 'member',
+            :github_permission, NOW(), NOW() + interval '24 hours'
+        )
+        ON CONFLICT (repo_id, supabase_user_id) DO UPDATE SET
+            github_login = EXCLUDED.github_login,
+            role = 'member',
+            github_permission = EXCLUDED.github_permission,
+            access_checked_at = NOW(),
+            access_expires_at = NOW() + interval '24 hours',
+            removed_at = NULL
+    """)
+    for grant in grants:
+        await session.execute(upsert_repo_member, grant)
+
+
 @router.post("/claim")
 async def claim(
     body: ClaimRequest,
@@ -86,9 +156,67 @@ async def claim(
     if installation is None:
         raise HTTPException(status_code=403, detail="installation not accessible to this GitHub user")
 
+    account = installation["account"]
+    full_repos = []
+    user_repos = []
+    if not (account["type"] == "User" and account["login"] == github_user["login"]):
+        installation_token = await github_app.get_installation_token(installation["id"])
+        full_repos = await _paginate_installation_collection(
+            "/installation/repositories", "repositories", installation_token
+        )
+        user_repos = await _paginate_user_collection(
+            f"/user/installations/{installation['id']}/repositories",
+            "repositories",
+            body.provider_token,
+        )
+
+    access_level = _claim_access_level(
+        account["type"],
+        account["login"],
+        github_user["login"],
+        full_repos,
+        user_repos,
+    )
+
+    if access_level == "member":
+        installation_result = await session.execute(text("""
+            SELECT id
+            FROM installations
+            WHERE github_installation_id = :gid
+              AND deleted_at IS NULL
+        """), {"gid": installation["id"]})
+        installation_row = installation_result.fetchone()
+        if installation_row is None:
+            raise HTTPException(status_code=409, detail="installation is not tracked")
+
+        tracked_repos = await _repo_member_grants_for_installation(session, installation_row.id)
+        grants = []
+        for github_repo in user_repos:
+            repo_id = tracked_repos.get(github_repo.get("id"))
+            if repo_id is None:
+                continue
+            grants.append({
+                "repo_id": repo_id,
+                "supabase_user_id": user.id,
+                "github_login": github_user["login"],
+                "github_permission": _highest_permission(github_repo.get("permissions") or {}),
+            })
+        await _upsert_repo_member_grants(session, grants)
+        await session.commit()
+        logger.info("installation repo access claimed", extra={
+            "github_installation_id": installation["id"],
+            "account_login": account["login"],
+            "repo_grants": len(grants),
+        })
+        return {
+            "status": "member",
+            "installation_id": installation["id"],
+            "account_login": account["login"],
+        }
+
     # Same idempotent upsert as handlers/Installation.py -- whichever of the
     # installation webhook or this claim lands first, the other converges.
-    # A successful live claim proves the installation currently exists on
+    # A successful live admin claim proves the installation currently exists on
     # GitHub, so resurrecting a stale soft-delete is correct.
     await session.execute(text("""
         INSERT INTO installations (github_installation_id, account_login, account_type)
@@ -100,8 +228,8 @@ async def claim(
             deleted_at = NULL
     """), {
         "gid": installation["id"],
-        "login": installation["account"]["login"],
-        "account_type": installation["account"]["type"],
+        "login": account["login"],
+        "account_type": account["type"],
     })
 
     await session.execute(text("""
@@ -119,12 +247,12 @@ async def claim(
     await session.commit()
     logger.info("installation claimed", extra={
         "github_installation_id": installation["id"],
-        "account_login": installation["account"]["login"],
+        "account_login": account["login"],
     })
     return {
         "status": "claimed",
         "installation_id": installation["id"],
-        "account_login": installation["account"]["login"],
+        "account_login": account["login"],
     }
 
 
@@ -163,17 +291,7 @@ async def sync_access(
         if installation_id is None:
             continue
 
-        repos_result = await session.execute(text("""
-            SELECT id, github_repo_id
-            FROM repos
-            WHERE installation_id = :installation_id
-              AND github_repo_id IS NOT NULL
-              AND removed_at IS NULL
-        """), {"installation_id": installation_id})
-        tracked_repos = {
-            row.github_repo_id: row.id
-            for row in repos_result.fetchall()
-        }
+        tracked_repos = await _repo_member_grants_for_installation(session, installation_id)
 
         try:
             github_repos = await _paginate_user_collection(
@@ -198,25 +316,7 @@ async def sync_access(
             })
 
         if grants:
-            upsert_repo_member = text("""
-                INSERT INTO repo_members (
-                    repo_id, supabase_user_id, github_login, role,
-                    github_permission, access_checked_at, access_expires_at
-                )
-                VALUES (
-                    :repo_id, :supabase_user_id, :github_login, 'member',
-                    :github_permission, NOW(), NOW() + interval '24 hours'
-                )
-                ON CONFLICT (repo_id, supabase_user_id) DO UPDATE SET
-                    github_login = EXCLUDED.github_login,
-                    role = 'member',
-                    github_permission = EXCLUDED.github_permission,
-                    access_checked_at = NOW(),
-                    access_expires_at = NOW() + interval '24 hours',
-                    removed_at = NULL
-            """)
-            for grant in grants:
-                await session.execute(upsert_repo_member, grant)
+            await _upsert_repo_member_grants(session, grants)
             granted += len(grants)
 
         removal_params = {

@@ -6,12 +6,16 @@ from AttributionResolver import attribution_resolver
 from scoring import compute_risk
 from github_app import repo_token
 from github_client import github_request
+from log_config import get_logger
+from risk_recompute import recompute_for_pull_request
 from datetime import datetime, timezone
 import os
 
 load_dotenv()
 
+logger = get_logger(__name__)
 SENSITIVE_PATH_TOKENS = ["env", ".secret", "config", "credentials", "key", "token", "password"]
+ZERO_SHA = "0" * 40
 
 
 def parse_dt(value):
@@ -25,6 +29,51 @@ async def fetch_commit_diff(sha, full_name, token=None):
     if response.status_code == 200:
         return response.json()
     return None
+
+
+def _compare_commit_to_push_commit(commit):
+    commit_body = commit["commit"]
+    author = commit_body["author"]
+    return {
+        "id": commit["sha"],
+        "message": commit_body["message"],
+        "timestamp": author["date"],
+        "url": commit["html_url"],
+        "author": {
+            "name": author["name"],
+            "email": author["email"],
+            "login": (commit.get("author") or {}).get("login"),
+        },
+    }
+
+
+async def _push_commits(payload, full_name, token):
+    commits = payload["commits"]
+    if len(commits) >= payload.get("size", 0) or payload.get("before") == ZERO_SHA:
+        return commits
+
+    # ponytail: compare API caps at 250 commits; paginate if that ever matters
+    try:
+        response = await github_request(
+            "GET",
+            f"/repos/{full_name}/compare/{payload['before']}...{payload['after']}",
+            token=token,
+        )
+    except Exception:
+        logger.warning("failed to backfill truncated push commits", extra={
+            "repo": full_name,
+            "status": "exception",
+        })
+        return commits
+
+    if response.status_code == 200:
+        return [_compare_commit_to_push_commit(commit) for commit in response.json().get("commits", [])]
+
+    logger.warning("failed to backfill truncated push commits", extra={
+        "repo": full_name,
+        "status": response.status_code,
+    })
+    return commits
 
 
 async def handle_push(payload, session: AsyncSession):
@@ -53,6 +102,7 @@ async def handle_push(payload, session: AsyncSession):
     pr_result = await session.execute(pr_lookup, {"repo_id": repo_id, "branch": branch})
     pr_row = pr_result.fetchone()
     pull_request_id = pr_row.id if pr_row else None
+    commits = await _push_commits(payload, full_name, token)
 
     commit_insert = text("""
         INSERT INTO commits (
@@ -86,7 +136,13 @@ async def handle_push(payload, session: AsyncSession):
         )
     """)
 
-    for commit in payload["commits"]:
+    merge_pr_lookup = text("""
+        SELECT id FROM pull_requests
+        WHERE repo_id = :repo_id
+          AND merge_commit_sha = :sha
+    """)
+
+    for commit in commits:
         sha = commit["id"]
 
         diff = await fetch_commit_diff(sha, full_name, token)
@@ -112,19 +168,31 @@ async def handle_push(payload, session: AsyncSession):
         )
         risk_large_unreviewed = total_additions > 500 and risk_no_review
 
+        commit_pull_request_id = pull_request_id
+        commit_risk_direct_to_main = risk_direct_to_main
+        if commit_pull_request_id is None:
+            merge_pr_result = await session.execute(merge_pr_lookup, {
+                "repo_id": repo_id,
+                "sha": sha,
+            })
+            merge_pr_row = merge_pr_result.fetchone()
+            if merge_pr_row:
+                commit_pull_request_id = merge_pr_row.id
+                commit_risk_direct_to_main = False
+
         risk_level = compute_risk(
             risk_no_review,
             risk_ci_unclean,
             risk_sensitive_path,
             risk_large_unreviewed,
-            risk_direct_to_main,
+            commit_risk_direct_to_main,
         )
 
         author_login = commit["author"].get("login") or commit["author"]["name"]
 
         result = await session.execute(commit_insert, {
             "repo_id": repo_id,
-            "pull_request_id": pull_request_id,
+            "pull_request_id": commit_pull_request_id,
             "sha": sha,
             "short_sha": sha[:7],
             "message": commit["message"],
@@ -148,7 +216,7 @@ async def handle_push(payload, session: AsyncSession):
             "risk_ci_unclean": risk_ci_unclean,
             "risk_sensitive_path": risk_sensitive_path,
             "risk_large_unreviewed": risk_large_unreviewed,
-            "risk_direct_to_main": risk_direct_to_main,
+            "risk_direct_to_main": commit_risk_direct_to_main,
             "pushed_at": parse_dt(commit["timestamp"]),
             "arrived_at": datetime.now(timezone.utc),
             "altered_at": None,
@@ -167,5 +235,8 @@ async def handle_push(payload, session: AsyncSession):
                 "deletions": f["deletions"],
                 "ai_lines_ranges": None,
             })
+
+        if commit_pull_request_id is not None:
+            await recompute_for_pull_request(commit_pull_request_id, session)
 
     await session.commit()

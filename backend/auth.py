@@ -8,6 +8,8 @@ from log_config import get_logger
 
 logger = get_logger(__name__)
 AUTH_DISABLED = os.getenv("AUTH_DISABLED", "").lower() == "true"
+if AUTH_DISABLED and os.getenv("RAILWAY_ENVIRONMENT"):
+    raise RuntimeError("AUTH_DISABLED must not be set in production")
 if AUTH_DISABLED:
     logger.warning("authentication is disabled")
 

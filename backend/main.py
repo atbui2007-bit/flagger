@@ -75,7 +75,6 @@ async def webhook(request: Request, session: AsyncSession = Depends(get_db)):
     repo_full_name = payload.get("repository", {}).get("full_name")
     delivery_id = request.headers.get("X-GitHub-Delivery")
     logger.info("webhook received", extra={"event": githubEventHeader, "repo": repo_full_name, "delivery_id": delivery_id})
-    logger.debug("webhook payload", extra={"payload": payload})
     try:
         if githubEventHeader == "installation":
             await handle_installation(payload, session)
@@ -83,12 +82,18 @@ async def webhook(request: Request, session: AsyncSession = Depends(get_db)):
             await handle_installation_repositories(payload, session)
         elif githubEventHeader in {"push", "pull_request", "workflow_run", "pull_request_review"}:
             guard_result = await session.execute(text("""
-                SELECT r.id, r.installation_id, r.removed_at,
-                       i.suspended_at, i.deleted_at
+                SELECT r.id, r.installation_id, r.removed_at, r.full_name,
+                       i.suspended_at, i.deleted_at, i.github_installation_id
                 FROM repos r
                 LEFT JOIN installations i ON r.installation_id = i.id
-                WHERE r.full_name = :full_name
-            """), {"full_name": repo_full_name})
+                WHERE r.github_repo_id = :github_repo_id
+                   OR (r.full_name = :full_name AND r.github_repo_id IS NULL)
+                ORDER BY CASE WHEN r.github_repo_id = :github_repo_id THEN 0 ELSE 1 END
+                LIMIT 1
+            """), {
+                "github_repo_id": payload.get("repository", {}).get("id"),
+                "full_name": repo_full_name,
+            })
             guarded_repo = guard_result.fetchone()
             if not guarded_repo or guarded_repo.removed_at is not None:
                 logger.info("webhook ignored for untracked repo", extra={"repo": repo_full_name, "event": githubEventHeader})
@@ -99,6 +104,33 @@ async def webhook(request: Request, session: AsyncSession = Depends(get_db)):
                 raise HTTPException(status_code=409, detail="GitHub App installation is suspended")
             if guarded_repo.deleted_at is not None:
                 raise HTTPException(status_code=409, detail="GitHub App installation is deleted")
+
+            payload_installation_id = payload.get("installation", {}).get("id")
+            if (
+                payload_installation_id is not None
+                and guarded_repo.github_installation_id is not None
+                and guarded_repo.github_installation_id != payload_installation_id
+            ):
+                logger.warning("webhook ignored for installation mismatch", extra={
+                    "repo": repo_full_name,
+                    "event": githubEventHeader,
+                    "stored_installation_id": guarded_repo.github_installation_id,
+                    "payload_installation_id": payload_installation_id,
+                })
+                return {"status": "ignored", "reason": "installation mismatch"}
+
+            if guarded_repo.full_name != repo_full_name:
+                await session.execute(text("""
+                    UPDATE repos
+                    SET full_name = :full_name,
+                        owner = :owner,
+                        updated_at = NOW()
+                    WHERE id = :id
+                """), {
+                    "id": guarded_repo.id,
+                    "full_name": repo_full_name,
+                    "owner": payload["repository"]["owner"]["login"],
+                })
 
             if githubEventHeader == "push":
                 await handle_push(payload, session)

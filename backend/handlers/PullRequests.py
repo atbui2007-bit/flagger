@@ -32,6 +32,22 @@ async def handle_pull_request(payload, session: AsyncSession):
         # existed; re-score them now rather than waiting on a review/CI event.
         await recompute_for_pull_request(pull_request_id, session)
 
+    merge_commit_sha = pr.get("merge_commit_sha")
+    if payload["action"] == "closed" and merge_commit_sha and (pr.get("merged") or pr.get("merged_at")):
+        await session.execute(text("""
+            UPDATE commits
+            SET pull_request_id = :pull_request_id,
+                risk_direct_to_main = FALSE,
+                altered_at = NOW()
+            WHERE repo_id = :repo_id
+              AND sha = :merge_commit_sha
+        """), {
+            "pull_request_id": pull_request_id,
+            "repo_id": repo_id,
+            "merge_commit_sha": merge_commit_sha,
+        })
+        await recompute_for_pull_request(pull_request_id, session)
+
     await session.commit()
 
 async def upsert_pull_request(pr, repo_id, session: AsyncSession):
@@ -41,10 +57,10 @@ async def upsert_pull_request(pr, repo_id, session: AsyncSession):
         INSERT INTO pull_requests (
             id, repo_id, github_pr_number, title, url,
             author_login, state, head_branch, merged_at, created_at,
-            updated_at, closed_at
+            updated_at, closed_at, merge_commit_sha
         )
         VALUES (
-            gen_random_uuid(), :repo_id, :github_pr_number, :title, :url, :author_login, :state, :head_branch, :merged_at, :created_at, :updated_at, :closed_at
+            gen_random_uuid(), :repo_id, :github_pr_number, :title, :url, :author_login, :state, :head_branch, :merged_at, :created_at, :updated_at, :closed_at, :merge_commit_sha
         )
         ON CONFLICT (github_pr_number, repo_id)
         DO UPDATE SET
@@ -55,7 +71,8 @@ async def upsert_pull_request(pr, repo_id, session: AsyncSession):
             head_branch = EXCLUDED.head_branch,
             updated_at = EXCLUDED.updated_at,
             merged_at = EXCLUDED.merged_at,
-            closed_at = EXCLUDED.closed_at
+            closed_at = EXCLUDED.closed_at,
+            merge_commit_sha = EXCLUDED.merge_commit_sha
         RETURNING id
     """)
     
@@ -70,6 +87,7 @@ async def upsert_pull_request(pr, repo_id, session: AsyncSession):
         "merged_at": parse_dt(pr.get("merged_at")),
         "created_at": parse_dt(pr["created_at"]),
         "updated_at": parse_dt(pr["updated_at"]),
-        "closed_at": parse_dt(pr.get("closed_at"))
+        "closed_at": parse_dt(pr.get("closed_at")),
+        "merge_commit_sha": pr.get("merge_commit_sha"),
     })
     return result.scalar()

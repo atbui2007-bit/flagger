@@ -12,7 +12,7 @@ USER_CLAIMS = {
     "sub": "11111111-1111-1111-1111-111111111111",
     "user_metadata": {"user_name": "octocat", "provider_id": "12345"},
 }
-INSTALLATION = {"id": 777, "account": {"login": "acme", "type": "Organization"}}
+INSTALLATION = {"id": 777, "account": {"login": "octocat", "type": "User"}}
 
 
 class FakeResult:
@@ -79,7 +79,7 @@ def request_claim(monkeypatch, session=None, claims=USER_CLAIMS, github=None, bo
 def test_claim_happy_path(monkeypatch):
     response, session = request_claim(monkeypatch)
     assert response.status_code == 200
-    assert response.json() == {"status": "claimed", "installation_id": 777, "account_login": "acme"}
+    assert response.json() == {"status": "claimed", "installation_id": 777, "account_login": "octocat"}
 
     queries = [q for q, _ in session.executions]
     assert any("INSERT INTO installations" in q and "ON CONFLICT (github_installation_id)" in q for q in queries)
@@ -147,3 +147,69 @@ def test_installations_require_bearer_token():
     with TestClient(main.app) as client:
         response = client.get("/installations")
     assert response.status_code == 401
+
+
+def test_claim_access_level_outside_collaborator_subset_is_member():
+    assert installations_module._claim_access_level(
+        "Organization",
+        "acme",
+        "octocat",
+        [{"id": 1}, {"id": 2}],
+        [{"id": 1, "permissions": {"admin": True}}],
+    ) == "member"
+
+
+def test_claim_access_level_full_coverage_non_admin_repo_is_member():
+    assert installations_module._claim_access_level(
+        "Organization",
+        "acme",
+        "octocat",
+        [{"id": 1}, {"id": 2}],
+        [
+            {"id": 1, "permissions": {"admin": True}},
+            {"id": 2, "permissions": {"push": True}},
+        ],
+    ) == "member"
+
+
+def test_claim_access_level_full_coverage_all_admin_is_admin():
+    assert installations_module._claim_access_level(
+        "Organization",
+        "acme",
+        "octocat",
+        [{"id": 1}, {"id": 2}],
+        [
+            {"id": 1, "permissions": {"admin": True}},
+            {"id": 2, "permissions": {"admin": True}},
+        ],
+    ) == "admin"
+
+
+def test_claim_access_level_empty_org_coverage_is_member():
+    assert installations_module._claim_access_level(
+        "Organization",
+        "acme",
+        "octocat",
+        [],
+        [],
+    ) == "member"
+
+
+def test_claim_access_level_matching_personal_account_is_admin():
+    assert installations_module._claim_access_level(
+        "User",
+        "octocat",
+        "octocat",
+        [],
+        [],
+    ) == "admin"
+
+
+def test_claim_access_level_non_matching_personal_account_is_member():
+    assert installations_module._claim_access_level(
+        "User",
+        "other-user",
+        "octocat",
+        [{"id": 1}],
+        [{"id": 1, "permissions": {"admin": True}}],
+    ) == "member"
