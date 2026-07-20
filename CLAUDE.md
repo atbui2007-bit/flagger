@@ -294,6 +294,108 @@ feed, VS Code extension.
 
 ---
 
+## 5. Known-Bugs Ledger (from the 2026-07-19 four-agent review)
+
+A full review (2 Claude subagents + 2 Codex tasks: backend correctness, new-user
+walkthrough, dashboard bug hunt, security) ran 2026-07-19. The "this week" slice
+shipped the same night (commit `1fab4b8` + migration 007): claim privilege-escalation
+fix, `AUTH_DISABLED` production gate, merge-commit→PR linking, >20-commit push
+backfill, ID-keyed webhook guard with rename self-heal, payload debug-log removal.
+Everything below is **found, verified, and still open** — ranked within each group.
+Details (exact failure scenarios, line refs) are in the session reports; SQL injection
+was audited clean (all user input parameterized).
+
+### Security (this month)
+
+1. Installation-wide `installation_members` grants never expire or revalidate —
+   `sync-access` refreshes only `repo_members`. A user removed from an org keeps full
+   read access until someone manually sets `removed_at`. Add TTL/revalidation.
+2. `provider_token` lives in sessionStorage (`lib/auth.tsx`) — XSS or a hostile
+   extension steals a live GitHub OAuth token. Mitigations, in order: CSP + security
+   headers (none exist today, cheapest win), then server-side token handling.
+3. RLS: enabled on only `installations`/`installation_members`/`repo_members`, no
+   policies anywhere, nothing on `repos`/`commits`/`pull_requests`/`ci_runs`/
+   `reviews`/`file_changes`. Zero DB-level tenant isolation if the API layer slips.
+   (Schema work — DB collaborator decision.)
+4. Commit/PR URLs from ingestion render as anchors unvalidated — restrict to
+   `https://github.com/...` at ingest or serialization.
+5. Cursor commit-id lookup in `activity.py`/`timeline.py` is unscoped by entitlement
+   (timestamp-ordering oracle only; reuse the entitlement predicate in the lookup).
+
+### Data correctness (risk claims must be honest)
+
+6. `risk_ci_unclean` is a ratchet: one failed run keeps every commit on the PR
+   flagged after a passing rerun (`risk_recompute.py` EXISTS over all `ci_runs`).
+   Should consider only the latest run per workflow/check.
+7. `WorkflowRun.py` attaches CI to `pull_requests[0]` only — sibling PRs on the same
+   branch never get CI signals; fork-head runs get none (payload list is empty).
+8. Aider attribution never fires: case-sensitive `startswith("Aider")` vs lowercase
+   `aider` trailers (`AttributionResolver.py`). Compare case-insensitively; also
+   verify the hardcoded `claude-ai[bot]` login against reality.
+9. Failed commit-diff fetch silently zeroes additions/risk inputs (`push.py`) — a
+   GitHub blip permanently understates risk with no flag. Also: REST `files` caps at
+   300; use the response's `stats` totals for additions/deletions.
+10. `github_client.py` retry: HTTP-date `Retry-After` crashes (`float()` ValueError →
+    webhook 500); numeric values sleep unbounded mid-webhook; plain 403s retry
+    pointlessly. Cap the sleep, parse both formats, skip retry on non-rate-limit 403.
+11. `timeline.py` `limit` lacks `ge=1` — `limit=0` → 500 (IndexError), negative →
+    SQL error. Copy the `activity.py` pattern.
+12. Deleted "ghost" accounts 500 webhooks: `pr["user"]["login"]` /
+    `review["user"]["login"]` on `user: null` (`PullRequests.py`,
+    `PullRequestReview.py`).
+13. Dismissed reviews still satisfy `has_review` (`risk_recompute.py` doesn't filter
+    state), so "no review" clears on a dismissed-only PR.
+14. Tag pushes aren't filtered (`push.py`): `refs/tags/v1` becomes `branch` verbatim
+    with wrong direct-to-main semantics.
+15. A webhook 500 loses the event permanently (GitHub doesn't auto-redeliver), and
+    big pushes (~100 sequential API calls) will exceed GitHub's 10s delivery timeout
+    — consider ack-then-process or at least tightening per-delivery work.
+
+### Dashboard / first-run UX (this month — these lose new users)
+
+16. Signed-in user with zero installations lands on Activity and sees "✓ All clear"
+    + "No activity matches these filters / Clear filters" — every message wrong; the
+    page needs a real not-connected empty state pointing at Connect.
+17. Freshly installed repos are invisible until their first push — facets and
+    `Repositories.tsx` build from `commits`, contradicting "takes under a minute to
+    appear". List repos from the `repos` table instead.
+18. Connect claim traps: wrong-GitHub-account claim shows raw "Request failed: 403"
+    with an eternal Retry and the pending id re-fires every reload (no dismiss path);
+    expired-but-present provider_token hits the same dead Retry because backend maps
+    GitHub 401→403 and `needsReauth` only checks token *absence*.
+19. Any API 401 silently signs the user out mid-session with no message
+    (`lib/api.ts`); a JWT misconfig becomes an infinite login loop. Show a
+    "session expired" state.
+20. `accessSyncStarted` is a module-level flag never reset on sign-out (`App.tsx`) —
+    user B on the same tab never syncs; `provider_token` is per-tab sessionStorage so
+    new tabs/restarts silently skip sync until repo grants TTL out with no visible
+    remedy outside Settings. Also surface sync failure on the Activity page itself.
+21. `queryClient` cache isn't cleared on sign-out — next account briefly sees the
+    previous account's data.
+22. Feed mechanics: double-click Next corrupts `cursorHistory`; filter changes race
+    the stale cursor for one render (query key uses new filters + old cursor);
+    `Number(attribution_confidence)` is NaN so confidence never affects the
+    review-queue sort; search doesn't escape `%`/`_`; Evidence Inspector stays open
+    showing a stale commit across pagination; no `placeholderData` so every page
+    flips to skeleton.
+23. OAuth `redirectTo: location.origin` drops the hash — shared deep links (e.g. a
+    PR URL) never survive sign-in; denied OAuth (`error=access_denied`) lands on
+    Login with zero explanation; `setup_action=request` (org-approval flow) is
+    dropped by `main.tsx` so the user sees an unexplained empty dashboard.
+
+### Backlog (real, not urgent)
+
+24. `GET /installations` claim-status polish: `status: "member"` responses from the
+    hardened claim aren't surfaced distinctly in Connect yet ("connected as member"
+    vs "connected as admin").
+25. `completed_at` on in-flight workflow runs shows `updated_at` until completion.
+26. NULL `pushed_at` commits (latent) would sort first and break pagination — guard
+    when mapping `commit["timestamp"]`.
+27. Greeting hour captured once ("Good morning." all afternoon); light-theme users
+    get a dark first paint (`data-theme` set in an effect).
+
+---
+
 ## Non-Goals
 
 - Not a code quality/review tool.
