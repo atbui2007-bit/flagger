@@ -54,8 +54,14 @@ def github_responses(user_id=12345, installations=None):
     return fake_github_request
 
 
+def identity_session(github_id="12345"):
+    # _trusted_github_id reads auth.identities; FakeSession replays these rows for
+    # every query, but only the identity lookup consumes fetchone().github_id.
+    return FakeSession(rows=[SimpleNamespace(github_id=github_id)])
+
+
 def request_claim(monkeypatch, session=None, claims=USER_CLAIMS, github=None, body=None):
-    session = session or FakeSession()
+    session = session or identity_session()
     monkeypatch.setattr(installations_module, "github_request", github or github_responses())
 
     async def override_db():
@@ -94,14 +100,26 @@ def test_claim_happy_path(monkeypatch):
 def test_claim_installation_not_accessible(monkeypatch):
     response, session = request_claim(monkeypatch, github=github_responses(installations=[]))
     assert response.status_code == 403
-    assert session.executions == []
+    assert not any("INSERT" in q for q, _ in session.executions)
     assert session.commits == 0
 
 
 def test_claim_github_identity_mismatch(monkeypatch):
+    # Token's GitHub user (99999) != the id GoTrue recorded in auth.identities (12345).
     response, session = request_claim(monkeypatch, github=github_responses(user_id=99999))
     assert response.status_code == 403
-    assert session.executions == []
+    assert not any("INSERT" in q for q, _ in session.executions)
+    assert session.commits == 0
+
+
+def test_claim_ignores_user_metadata_provider_id(monkeypatch):
+    # F3: a spoofed user_metadata.provider_id must not be trusted -- identity is
+    # bound to auth.identities. Here metadata claims 99999 but the token and the
+    # identities row both say 12345, so the claim must succeed.
+    spoofed = {"sub": USER_CLAIMS["sub"], "user_metadata": {"user_name": "octocat", "provider_id": "99999"}}
+    response, session = request_claim(monkeypatch, claims=spoofed)
+    assert response.status_code == 200
+    assert session.commits == 1
 
 
 def test_claim_dead_provider_token(monkeypatch):

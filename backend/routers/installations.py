@@ -113,6 +113,25 @@ async def _repo_member_grants_for_installation(session, installation_id):
     }
 
 
+async def _trusted_github_id(session, supabase_user_id):
+    # F3: bind the provider token to the GitHub id GoTrue recorded at OAuth
+    # sign-in (auth.identities), NOT user_metadata.provider_id -- the latter is
+    # user-editable via auth.updateUser, so trusting it lets a stolen token be
+    # claimed into an attacker-chosen account. auth.identities is written by
+    # Supabase Auth and cannot be mutated by the user.
+    # GoTrue stores the GitHub numeric id under identity_data->>'sub'; some
+    # versions also populate ->>'provider_id'. COALESCE covers both.
+    result = await session.execute(text("""
+        SELECT COALESCE(identity_data->>'provider_id', identity_data->>'sub') AS github_id
+        FROM auth.identities
+        WHERE user_id = :uid AND provider = 'github'
+        ORDER BY last_sign_in_at DESC NULLS LAST
+        LIMIT 1
+    """), {"uid": supabase_user_id})
+    row = result.fetchone()
+    return row.github_id if row else None
+
+
 async def _upsert_repo_member_grants(session, grants):
     if not grants:
         return
@@ -149,7 +168,8 @@ async def claim(
     # Bind the provider token to the signed-in user's GitHub identity so a
     # borrowed token for a different GitHub account can't claim installations.
     github_user = await _github_json("GET", "/user", body.provider_token)
-    if user.github_id is None or str(github_user.get("id")) != str(user.github_id):
+    trusted_github_id = await _trusted_github_id(session, user.id)
+    if trusted_github_id is None or str(github_user.get("id")) != str(trusted_github_id):
         raise HTTPException(status_code=403, detail="token does not match authenticated user")
 
     installation = await _find_user_installation(body.installation_id, body.provider_token)
@@ -233,11 +253,15 @@ async def claim(
     })
 
     await session.execute(text("""
-        INSERT INTO installation_members (installation_id, supabase_user_id, github_login, role)
+        INSERT INTO installation_members (
+            installation_id, supabase_user_id, github_login, role, access_expires_at
+        )
         VALUES ((SELECT id FROM installations WHERE github_installation_id = :gid),
-                :supabase_user_id, :github_login, 'admin')
+                :supabase_user_id, :github_login, 'admin', NOW() + interval '24 hours')
         ON CONFLICT (installation_id, supabase_user_id) DO UPDATE SET
             github_login = EXCLUDED.github_login,
+            role = 'admin',
+            access_expires_at = NOW() + interval '24 hours',
             removed_at = NULL
     """), {
         "gid": installation["id"],
@@ -266,7 +290,8 @@ async def sync_access(
         raise HTTPException(status_code=400, detail="sync unavailable when auth is disabled")
 
     github_user = await _github_json("GET", "/user", body.provider_token)
-    if user.github_id is None or str(github_user.get("id")) != str(user.github_id):
+    trusted_github_id = await _trusted_github_id(session, user.id)
+    if trusted_github_id is None or str(github_user.get("id")) != str(trusted_github_id):
         raise HTTPException(status_code=403, detail="token does not match authenticated user")
 
     user_installations = await _paginate_user_collection(
@@ -285,11 +310,27 @@ async def sync_access(
     granted = 0
     removed = 0
     failed_installation_ids = []
+    visible_installation_ids = []
     for installation in user_installations:
         github_installation_id = installation.get("id")
         installation_id = tracked.get(github_installation_id)
         if installation_id is None:
             continue
+        visible_installation_ids.append(installation_id)
+
+        # Still reachable via GitHub -> refresh the installation-wide grant's TTL
+        # (no-op if this user only has a repo-scoped membership here).
+        # ponytail: trusts /user/installations visibility, not re-verified admin;
+        # a demoted-but-still-collaborator admin keeps the grant until they drop off
+        # the list. Upgrade to re-run _claim_access_level here if downgrade detection
+        # matters -- deferred to avoid ~2 paginated GitHub calls per install per sync.
+        await session.execute(text("""
+            UPDATE installation_members
+            SET access_expires_at = NOW() + interval '24 hours'
+            WHERE supabase_user_id = :supabase_user_id
+              AND installation_id = :installation_id
+              AND removed_at IS NULL
+        """), {"supabase_user_id": user.id, "installation_id": installation_id})
 
         tracked_repos = await _repo_member_grants_for_installation(session, installation_id)
 
@@ -344,6 +385,29 @@ async def sync_access(
         removal_result = await session.execute(text(removal_sql), removal_params)
         removed += removal_result.rowcount
 
+    # Off-boarding: expire installation-wide grants for installations GitHub no
+    # longer lists for this token. The /user/installations fetch above already
+    # succeeded (it raises, not appends, on failure), so visibility here is
+    # complete -- a per-installation repo-listing failure below doesn't make it
+    # incomplete, so it must not gate this expiry.
+    expire_params = {"supabase_user_id": user.id}
+    expire_sql = """
+        UPDATE installation_members
+        SET access_expires_at = NOW()
+        WHERE supabase_user_id = :supabase_user_id
+          AND removed_at IS NULL
+          AND (access_expires_at IS NULL OR access_expires_at > NOW())
+    """
+    if visible_installation_ids:
+        placeholders = []
+        for index, installation_id in enumerate(visible_installation_ids):
+            key = f"visible_installation_id_{index}"
+            placeholders.append(f":{key}")
+            expire_params[key] = installation_id
+        expire_sql += f" AND installation_id NOT IN ({', '.join(placeholders)})"
+    expire_result = await session.execute(text(expire_sql), expire_params)
+    removed += expire_result.rowcount
+
     await session.commit()
     response = {"status": "ok", "granted": granted, "removed": removed}
     if failed_installation_ids:
@@ -389,6 +453,7 @@ async def list_installations(
               ON im.installation_id = i.id
              AND im.supabase_user_id = :auth_user_id
              AND im.removed_at IS NULL
+             AND (im.access_expires_at IS NULL OR im.access_expires_at > NOW())
             WHERE im.id IS NOT NULL OR EXISTS (
                 SELECT 1 FROM repos r
                 JOIN repo_members rm ON rm.repo_id = r.id
