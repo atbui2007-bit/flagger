@@ -113,3 +113,20 @@ def test_activity_requires_bearer_token():
     with TestClient(main.app) as client:
         response = client.get("/activity/recent")
     assert response.status_code == 401
+
+
+def test_installation_membership_is_ttl_bounded():
+    # F1: installation-wide grants must carry the same time bound repo_members has,
+    # so an off-boarded (expired) membership stops entitling reads.
+    session = FakeSession()
+    response = request("/activity/recent", session)
+    assert response.status_code == 200
+    query, _ = session.executions[-1]
+    assert "im.access_expires_at" in query
+
+
+def test_timeline_rejects_limit_zero():
+    # F4: limit=0 previously reached rows[-1] on an empty list -> 500. ge=1 makes it a 422.
+    session = FakeSession(rows=[])
+    response = request("/repos/acme/widgets/timeline?limit=0", session)
+    assert response.status_code == 422

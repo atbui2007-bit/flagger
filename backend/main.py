@@ -23,7 +23,15 @@ import sentry_sdk
 load_dotenv()
 sentry_dsn = os.getenv("SENTRY_DSN")
 if sentry_dsn:
-    sentry_sdk.init(dsn=sentry_dsn)
+    # provider_token (a live GitHub OAuth token) arrives in claim/sync request
+    # bodies and lives in the `body` stack local; suppress both capture paths so
+    # an unhandled 500 can't ship the credential to Sentry.
+    sentry_sdk.init(
+        dsn=sentry_dsn,
+        send_default_pii=False,
+        include_local_variables=False,
+        max_request_body_size="never",
+    )
 secret = os.getenv("WEBHOOK_SECRET")
 if not secret:
     raise RuntimeError("WEBHOOK_SECRET is required")

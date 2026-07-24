@@ -31,6 +31,7 @@ async def get_repo(full_name, session, user=None):
                     WHERE im.installation_id = r.installation_id
                       AND im.supabase_user_id = :auth_user_id
                       AND im.removed_at IS NULL
+                      AND (im.access_expires_at IS NULL OR im.access_expires_at > NOW())
                 )
                 OR EXISTS (
                     SELECT 1 FROM repo_members rm

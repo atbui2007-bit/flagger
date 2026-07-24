@@ -43,7 +43,7 @@ async def get_timeline(limit, cursor, repo_id, session: AsyncSession):
     if has_more:
         rows = rows[:-1]
     rows = [dict(row._mapping) for row in rows]
-    next_cursor = rows[-1]["id"] if has_more else None
+    next_cursor = rows[-1]["id"] if has_more and rows else None
     return {
         "data": rows,
         "next_cursor": next_cursor,
@@ -54,7 +54,7 @@ async def get_timeline(limit, cursor, repo_id, session: AsyncSession):
 async def timeline(
     owner: str,
     name: str,
-    limit: int = Query(default=20, le=100),
+    limit: int = Query(default=20, ge=1, le=100),
     cursor: str = Query(default=None),
     user: CurrentUser = Depends(current_user),
     session: AsyncSession = Depends(get_db)

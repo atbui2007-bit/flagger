@@ -83,6 +83,7 @@ ENTITLED_COMMITS_PREDICATE = """commits.repo_id IN (
     SELECT r.id FROM repos r
     JOIN installation_members im ON im.installation_id = r.installation_id
     WHERE im.supabase_user_id = :auth_user_id AND im.removed_at IS NULL
+      AND (im.access_expires_at IS NULL OR im.access_expires_at > NOW())
     UNION
     SELECT rm.repo_id FROM repo_members rm
     WHERE rm.supabase_user_id = :auth_user_id
