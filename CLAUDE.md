@@ -374,10 +374,11 @@ was audited clean (all user input parameterized).
     previous account's data.
 22. Feed mechanics: double-click Next corrupts `cursorHistory`; filter changes race
     the stale cursor for one render (query key uses new filters + old cursor);
-    `Number(attribution_confidence)` is NaN so confidence never affects the
-    review-queue sort; search doesn't escape `%`/`_`; Evidence Inspector stays open
-    showing a stale commit across pagination; no `placeholderData` so every page
-    flips to skeleton.
+    search doesn't escape `%`/`_`; Evidence Inspector stays open showing a stale
+    commit across pagination; no `placeholderData` so every page flips to skeleton.
+    (The `Number(attribution_confidence)` NaN sort bug from this item was fixed in
+    `bcdf73c`, along with a `risk_level = 'critical'` case missing from the same
+    `reviewPriority()` switch that ranked critical commits below `low`.)
 23. OAuth `redirectTo: location.origin` drops the hash — shared deep links (e.g. a
     PR URL) never survive sign-in; denied OAuth (`error=access_denied`) lands on
     Login with zero explanation; `setup_action=request` (org-approval flow) is
