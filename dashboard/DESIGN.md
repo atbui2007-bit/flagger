@@ -20,6 +20,7 @@ colors:
   code-surface: "#1c1f28"
   review: "#f5a08c"
   review-surface: "#3a231e"
+  caution: "#d9b85f"
   reviewed: "#7fc4dc"
   reviewed-surface: "#17323c"
   approved: "#83d6a5"
@@ -34,6 +35,7 @@ colors:
   light-divider: "#dfe2ea"
   light-accent: "#4f66d8"
   light-review: "#a33d2a"
+  light-caution: "#7a5a00"
   light-reviewed: "#2a6086"
   light-approved: "#1f6b45"
 typography:
@@ -191,6 +193,8 @@ warm/cool state colors reserved exclusively for review status.
 - **Review** (`#f5a08c` on `#3a231e`): Needs-review. Deliberately warm so it can never
   be mistaken for the cool aurora family. Always paired with the word "Review" and/or
   an icon.
+- **Caution** (`#d9b85f`, light `#7a5a00`): Medium risk. Muted gold, not orange, so it
+  stays distinct from Review while preserving small-text contrast.
 - **Reviewed** (`#7fc4dc` on `#17323c`): Reviewed-not-approved.
 - **Approved** (`#83d6a5` on `#1a3527`): Approved.
 
@@ -446,15 +450,19 @@ is tight groups, generous section breaks — never four equal bands.
 - **Rows:** Contiguous Row Fill planes separated by single Divider rules (omitted on
   the final row) — no per-row radius, no gaps, so column scanning stays continuous.
 - **Content:** Six columns — time, change, repository/branch, author/agent,
-  confidence, state. The change cell leads with the commit message (Ink, 700) and
+  risk, state. The change cell leads with the commit message (Ink, 700) and
   carries the line counts beneath it in mono: additions in Approved, deletions in
   Review, each with its `+`/`−` sign so the sign carries the meaning and color only
-  reinforces it. Remaining metadata is Muted Ink + state chips.
+  reinforces it. Risk reads Low, Medium, High, Critical, with the dot rendering
+  hollow-muted, half-filled Caution, filled Review, and filled Review with a soft
+  ring respectively. Remaining metadata is Muted Ink + state chips.
 - **What the row does not carry:** the abbreviated SHA and the per-signal risk chips.
   Both were removed — the SHA because the full one is one click away in the Evidence
   Inspector, the chips because a row of red pills under every message read as alarm
-  rather than evidence, which the State column already reports honestly. The mono SHA
-  capsule survives in PR detail, where it is the row's identity rather than a repeat.
+  rather than evidence, which the State column already reports honestly; a single
+  risk-level cell was reinstated at the user's request and remains distinct from
+  those per-signal chips. The mono SHA capsule survives in PR detail, where it is the
+  row's identity rather than a repeat.
 - **Hover:** Row Fill Hover. **Selected:** an Aurora Blue 10% tint mixed into the row
   fill plus the standard focus outline — no stripe borders, no inset box rings.
 - **Behavior:** New activity never reorders or reflows rows while the user is reading.

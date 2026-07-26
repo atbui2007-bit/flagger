@@ -19,6 +19,7 @@
   --focus: #8da2ff;
   --review: #f5a08c;
   --review-bg: #3a231e;
+  --caution: #d9b85f;
   --approved: #83d6a5;
   --approved-bg: #1a3527;
   --reviewed: #7fc4dc;
@@ -84,6 +85,7 @@
   --focus: #4f66d8;
   --review: #a33d2a;
   --review-bg: #fbe9e4;
+  --caution: #7a5a00;
   --approved: #1f6b45;
   --approved-bg: #e6f4ec;
   --reviewed: #2a6086;
@@ -286,10 +288,15 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .diff-del { color: var(--review); }
 .row-repo strong, .row-author strong { overflow: hidden; color: var(--ink); font-size: .78rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .row-repo small, .row-author small { overflow: hidden; color: var(--ink-muted); font-size: .6875rem; text-overflow: ellipsis; white-space: nowrap; }
-.confidence { display: grid; grid-template-columns: 8px 1fr; column-gap: 6px; align-items: center; color: var(--ink-soft); font-size: .6875rem; }
-.confidence i { width: 8px; height: 8px; border: 1px solid currentColor; border-radius: 50%; }
-.confidence-high i { background: var(--ink); }
-.confidence-medium i { background: linear-gradient(90deg, var(--ink) 50%, transparent 50%); }
+.risk { display: grid; grid-template-columns: 12px 1fr; column-gap: 6px; align-items: center; color: var(--ink-soft); font-size: .6875rem; }
+.risk i { width: 8px; height: 8px; border: 1px solid currentColor; border-radius: 50%; }
+.risk-low { color: var(--ink-muted); }
+.risk-medium { color: var(--caution); }
+.risk-medium i { background: linear-gradient(90deg, currentColor 50%, transparent 50%); }
+.risk-high { color: var(--review); }
+.risk-high i { background: currentColor; }
+.risk-critical { color: var(--review); }
+.risk-critical i { background: currentColor; box-shadow: 0 0 0 2px color-mix(in srgb, var(--review) 30%, transparent); }
 
 /* Review states: color always paired with text; shapes differ per state */
 .review-state { display: inline-flex; align-items: center; gap: 6px; width: fit-content; padding: 7px 11px; border: 1px solid transparent; border-radius: 999px; font-size: .6875rem; font-weight: 600; white-space: nowrap; letter-spacing: .01em; color: var(--ink-soft); background: var(--surface-muted); }
@@ -449,7 +456,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
   .evidence-header { padding-inline: var(--space-4); }
   .ledger-head, .ledger-row { font-size: .875rem; }
   .row-time, .row-change-diff, .row-repo strong, .row-author strong, .evidence-section h3, .evidence dl div, .signal-list, .quiet-copy, .evidence-links a { font-size: .875rem; }
-  .row-repo small, .row-author small, .confidence, .review-state, .ledger-head { font-size: .75rem; }
+  .row-repo small, .row-author small, .risk, .review-state, .ledger-head { font-size: .75rem; }
 }
 
 @media (pointer: coarse) {

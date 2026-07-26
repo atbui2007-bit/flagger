@@ -68,7 +68,6 @@ export type Filters = {
   contributor: string
   agent: string
   risk: string
-  confidence: string
   search: string
 }
 
@@ -77,7 +76,6 @@ export const initialFilters: Filters = {
   contributor: '',
   agent: '',
   risk: '',
-  confidence: '',
   search: '',
 }
 
@@ -91,9 +89,19 @@ function queryString(filters: Filters, cursor?: string | null, includeLimit = tr
 
 function confidenceLabel(value: string) {
   const normalized = value.toLowerCase()
-  if (normalized === 'certain' || normalized === 'high' || Number(value) >= 80) return 'High'
-  if (normalized === 'likely' || normalized === 'medium' || Number(value) >= 50) return 'Medium'
-  return 'Low'
+  if (normalized === 'certain') return 'Certain'
+  if (normalized === 'likely') return 'Likely'
+  return 'Suspected'
+}
+
+function riskLabel(value: string | null) {
+  switch (value?.toLowerCase()) {
+    case 'critical': return 'Critical'
+    case 'high': return 'High'
+    case 'medium': return 'Medium'
+    case 'low': return 'Low'
+    default: return 'Unknown'
+  }
 }
 
 function formatAgentName(value: string) {
@@ -166,13 +174,17 @@ function reviewPriority(commit: Commit) {
   if (commit.risk_large_unreviewed) score += 320
   if (commit.risk_no_review) score += 240
   switch (commit.risk_level?.toLowerCase()) {
+    case 'critical': score += 240; break
     case 'high': score += 180; break
     case 'medium': score += 120; break
     case 'low': score += 60; break
     default: score += 20; break
   }
-  const confidence = Number(commit.attribution_confidence)
-  score += Number.isFinite(confidence) ? Math.min(Math.max(confidence, 0), 100) : 0
+  switch (commit.attribution_confidence?.toLowerCase()) {
+    case 'certain': score += 30; break
+    case 'likely': score += 20; break
+    default: score += 10; break
+  }
   return score
 }
 
@@ -223,7 +235,7 @@ function EvidenceInspector({ commit, closing, onClose, onExitComplete }: { commi
           <div><dt>Commit</dt><dd className="mono">{commit.sha}</dd></div>
           <div><dt>Repository / branch</dt><dd>{commit.full_name} / <span className="mono">{commit.branch}</span></dd></div>
           <div><dt>Author / agent</dt><dd>{commit.author_login} / {commit.agent_type}</dd></div>
-          <div><dt>Attribution confidence</dt><dd>{confidenceLabel(commit.attribution_confidence)} · {commit.attribution_confidence}</dd></div>
+          <div><dt>Attribution confidence</dt><dd>{confidenceLabel(commit.attribution_confidence)}</dd></div>
         </dl>
       </section>
       <section className="evidence-section">
@@ -458,7 +470,6 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
             <label className="filter-pill"><span className="sr-only">Contributor</span><select value={filters.contributor} onChange={(e) => updateFilter('contributor', e.target.value)}><option value="">All contributors</option>{facets.data?.contributors.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
             <label className="filter-pill"><span className="sr-only">Agent</span><select value={filters.agent} onChange={(e) => updateFilter('agent', e.target.value)}><option value="">All agents</option>{facets.data?.agents.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
             <label className="filter-pill"><span className="sr-only">Risk signal</span><select value={filters.risk} onChange={(e) => updateFilter('risk', e.target.value)}><option value="">Any risk signal</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
-            <label className="filter-pill"><span className="sr-only">Confidence</span><select value={filters.confidence} onChange={(e) => updateFilter('confidence', e.target.value)}><option value="">Any confidence</option><option value="high">High confidence</option><option value="medium">Medium confidence</option><option value="low">Low confidence</option></select></label>
           </div>
 
           <div className="ledger" role="table" aria-label="Commit activity">
@@ -471,7 +482,7 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
               </div>
             </div>
             <div className="ledger-head" role="row">
-              <span role="columnheader">Time</span><span role="columnheader">Change</span><span role="columnheader">Repository / branch</span><span role="columnheader">Author / agent</span><span role="columnheader">Confidence</span><span role="columnheader">State</span>
+              <span role="columnheader">Time</span><span role="columnheader">Change</span><span role="columnheader">Repository / branch</span><span role="columnheader">Author / agent</span><span role="columnheader">Risk</span><span role="columnheader">State</span>
             </div>
             {activity.isPending && <ActivitySkeleton />}
             {activity.isError && (
@@ -499,7 +510,6 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
               <section className="ledger-group" key={group} aria-label={`${group} · ${commits.length} ${commits.length === 1 ? 'change' : 'changes'}`}>
                 <h2>{group}<span className="ledger-group-count">· {commits.length} {commits.length === 1 ? 'change' : 'changes'}</span></h2>
                 {commits.map((commit) => {
-                  const confidence = confidenceLabel(commit.attribution_confidence)
                   const enterOnce = entranceActive && entranceCommitIds.current.has(commit.id)
                   return (
                     <div className={`ledger-row${selected?.id === commit.id ? ' selected' : ''}${enterOnce ? ' enter-once' : ''}`} style={enterOnce ? { '--i': Math.min(globalRowIndexes.get(commit.id) ?? 0, 9) } as React.CSSProperties : undefined} role="row" tabIndex={0} key={commit.id} onClick={() => selectCommit(commit)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectCommit(commit) } }} aria-label={`Inspect ${firstLine(commit.message)}`}>
@@ -513,7 +523,7 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
                       </span>
                       <span className="row-repo" role="cell"><strong>{commit.full_name}</strong><small>{commit.branch}</small></span>
                       <span className="row-author" role="cell"><strong>{commit.author_login}</strong><small>{commit.agent_type}</small></span>
-                      <span className={`confidence confidence-${confidence.toLowerCase()}`} role="cell"><i aria-hidden="true" /><span>{confidence}</span></span>
+                      <span className={`risk risk-${(commit.risk_level ?? 'unknown').toLowerCase()}`} role="cell"><i aria-hidden="true" /><span>{riskLabel(commit.risk_level)}</span></span>
                       <span className={`review-state ${reviewStateClass(commit)}`} role="cell"><i aria-hidden="true" />{reviewState(commit)}</span>
                     </div>
                   )
