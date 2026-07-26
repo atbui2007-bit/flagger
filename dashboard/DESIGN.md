@@ -37,28 +37,50 @@ colors:
   light-reviewed: "#2a6086"
   light-approved: "#1f6b45"
 typography:
-  display:
-    fontFamily: "system-ui, Segoe UI, Roboto, sans-serif"
-    fontSize: "56px"
-    fontWeight: 500
-    lineHeight: "1.18"
-    letterSpacing: "-1.68px"
   title:
     fontFamily: "system-ui, Segoe UI, Roboto, sans-serif"
     fontSize: "24px"
-    fontWeight: 500
-    lineHeight: "1.18"
-    letterSpacing: "-0.24px"
-  body:
+    fontWeight: 600
+    lineHeight: "1.2"
+    letterSpacing: "-0.03em"
+  section:
+    fontFamily: "system-ui, Segoe UI, Roboto, sans-serif"
+    fontSize: "18px"
+    fontWeight: 600
+    lineHeight: "1.25"
+    letterSpacing: "-0.02em"
+  subhead:
     fontFamily: "system-ui, Segoe UI, Roboto, sans-serif"
     fontSize: "16px"
+    fontWeight: 600
+    lineHeight: "1.3"
+    letterSpacing: "-0.015em"
+  body:
+    fontFamily: "system-ui, Segoe UI, Roboto, sans-serif"
+    fontSize: "14px"
     fontWeight: 400
     lineHeight: "1.5"
   label:
-    fontFamily: "ui-monospace, Consolas, monospace"
+    fontFamily: "system-ui, Segoe UI, Roboto, sans-serif"
     fontSize: "13px"
     fontWeight: 600
     lineHeight: "1.35"
+  column-header:
+    fontFamily: "system-ui, Segoe UI, Roboto, sans-serif"
+    fontSize: "12px"
+    fontWeight: 600
+    lineHeight: "1.35"
+    letterSpacing: "0"
+  micro:
+    fontFamily: "system-ui, Segoe UI, Roboto, sans-serif"
+    fontSize: "11px"
+    fontWeight: 600
+    lineHeight: "1.35"
+  mono:
+    fontFamily: "ui-monospace, Consolas, monospace"
+    fontWeight: 400
+    lineHeight: "1.35"
+    fontFeature: "tabular-nums"
 rounded:
   xs: "5px"
   sm: "10px"
@@ -80,11 +102,15 @@ components:
     width: "220px"
   summary-strip:
     textColor: "{colors.muted-ink}"
-    typography: "{typography.body}"
+    typography: "{typography.label}"
   activity-row:
     backgroundColor: "{colors.row-fill}"
     textColor: "{colors.ink}"
-    padding: "12px 16px"
+    padding: "9px 12px"
+  ledger-day-header:
+    textColor: "{colors.ink}"
+    typography: "{typography.section}"
+    padding: "32px 16px 12px"
   ledger-shell:
     backgroundColor: "{colors.glass-fill}"
     rounded: "{rounded.lg}"
@@ -101,7 +127,7 @@ components:
   commit-sha:
     backgroundColor: "{colors.code-surface}"
     textColor: "{colors.ink}"
-    typography: "{typography.label}"
+    typography: "{typography.mono}"
     rounded: "{rounded.xs}"
     padding: "2px 6px"
 ---
@@ -225,17 +251,40 @@ Monospace is reserved for Git identifiers and machine-readable evidence. Labels 
 calm: sentence case at readable sizes — no uppercase tracked micro-labels anywhere.
 
 ### Hierarchy
-- **Display** (500, 56px, 1.18): Rare page-level headings only; 36px on compact screens.
-- **Title** (500, 24px, 1.18): Section headings; 20px on compact screens.
-- **Body** (400, 16px, 1.5): Commit messages and explanatory content. Prose capped at
-  65–75ch; dense table/feed content may run wider.
-- **Label** (600, 13px mono, 1.35): SHAs, branches, filenames, compact technical
-  identifiers, with `font-variant-numeric: tabular-nums`.
-- **Column headers** (600, 12px sans, sentence case, no added letter-spacing): table
-  and ledger headers. Never uppercase, never tracked.
+Seven sans steps, 11px to 24px. The ramp is compressed on purpose: this is a dense
+audit surface, so hierarchy comes from weight, color, and space far more than size.
+There is no display step — no surface in the product carries a hero heading.
+
+- **Title** (600, 24px, 1.2, -0.03em): The page heading, once per view — "Activity",
+  "Agents", "Repositories". Ink.
+- **Section** (600, 18px, 1.25, -0.02em): Structure inside a panel — the ledger's day
+  headers — and the sidebar wordmark at 700. Ink.
+- **Subhead** (600, 16px, 1.3, -0.015em): Panel headings such as the Evidence
+  Inspector's title, and the single emphasized figure in the summary strip.
+- **Body** (400, 14px, 1.5): Explanatory copy, lead sentences, nav items, inputs, and
+  commit messages (which run 700 for scanability). Prose capped at 65–75ch; dense
+  table/feed content may run wider.
+- **Label** (400–600, 13px, 1.35): The workhorse — toolbars, filter selects, buttons,
+  day counts, hints, and the agents note. Sentence case.
+- **Column headers** (600, 12px, no added letter-spacing): table and ledger headers,
+  plus dense row metadata (timestamps, diff counts, pagination). Never uppercase,
+  never tracked.
+- **Micro** (600, 11px, 1.35): Only inside dense rows and pills — confidence, review
+  state, repo/branch subtitles, SHA capsules.
+
+**Mono is a family, not a step.** `ui-monospace, Consolas, monospace` with
+`font-variant-numeric: tabular-nums` overlays whichever step its context uses
+(11px SHA capsules, 12px diff counts, 14px agent counts). Never pin a size to it.
 
 **The Evidence Type Rule.** Monospace for SHAs, branches, filenames, and code only.
 Never as general atmosphere.
+
+**The Compressed Ramp Rule.** Adjacent steps differ by 1–2px at the dense end. Never
+add a step between two that exist; reuse the nearer one. Three one-off sizes still sit
+off the ramp — 12.5px (`.row-repo strong`/`.row-author strong`), 14.08px
+(`.row-change strong`), 15px (`.strip-stat strong`) — two of them inside a single
+14–15px band. They are drift, not steps; snap them to 12, 14, and 14px when those
+components are next touched.
 
 **The Legible Glass Rule.** Text on glass must be Ink or Soft Ink and must pass 4.5:1
 against the *darkest plausible* content scrolling beneath the panel. Dense text gets
@@ -380,17 +429,32 @@ is tight groups, generous section breaks — never four equal bands.
   the right. The copy is **state-driven** — it describes the active sort ("Riskiest
   changes first within each day" vs "Newest changes first within each day") and must
   not overclaim: priority sorting happens within each day group.
-- **Internal bands:** toolbar 48px → column head 42px → day header 40px → rows.
-  Bands separate by fixed height, typography, and 1px Divider rules — never free
-  whitespace. All three bands use `--ledger-band-fill`: 40% Canvas Deep in dark mode
-  and 32% white in light mode, with Soft Ink labels and copy. Day headers are a real
-  40px band (13px, 700) carrying the day's count as quiet evidence — "Today · 3
-  changes" with the count in Soft Ink at 400 —
-  with an 8px gutter + boundary rule between day groups.
+- **Internal bands:** toolbar 48px → column head 42px → day header → rows. All three
+  use `--ledger-band-fill` (40% Canvas Deep dark, 32% white light) and separate by
+  fixed height, typography, and 1px Divider rules — never free whitespace. The band
+  fill is what keeps these strips from reading as bare glass; the shell's white frost
+  is too light to sit between dense evidence rows.
+- **The day header is a band, but not chrome.** It shares the band fill with the
+  toolbar and column head, and separates from them by type and space instead of
+  material: Section (18px, 600, -0.02em) in **Ink**, against their Soft Ink at 12–13px.
+  32px of air above and 12px below — more space above than below, so each date binds
+  to the rows it opens — and the fill covers that air, so no glass shows between days.
+  First group takes 24px above instead of 32px. The previous day is closed by its last
+  row's Divider rule; no extra boundary rule is added. The day's count trails on the
+  same baseline in Muted Ink at Label/400 — "Today · 3 changes" — quiet evidence, not
+  a badge.
 - **Rows:** Contiguous Row Fill planes separated by single Divider rules (omitted on
   the final row) — no per-row radius, no gaps, so column scanning stays continuous.
-- **Content:** Commit message first (Ink), abbreviated SHA in the mono code capsule,
-  contributor / agent / risk metadata in Muted Ink + state chips.
+- **Content:** Six columns — time, change, repository/branch, author/agent,
+  confidence, state. The change cell leads with the commit message (Ink, 700) and
+  carries the line counts beneath it in mono: additions in Approved, deletions in
+  Review, each with its `+`/`−` sign so the sign carries the meaning and color only
+  reinforces it. Remaining metadata is Muted Ink + state chips.
+- **What the row does not carry:** the abbreviated SHA and the per-signal risk chips.
+  Both were removed — the SHA because the full one is one click away in the Evidence
+  Inspector, the chips because a row of red pills under every message read as alarm
+  rather than evidence, which the State column already reports honestly. The mono SHA
+  capsule survives in PR detail, where it is the row's identity rather than a repeat.
 - **Hover:** Row Fill Hover. **Selected:** an Aurora Blue 10% tint mixed into the row
   fill plus the standard focus outline — no stripe borders, no inset box rings.
 - **Behavior:** New activity never reorders or reflows rows while the user is reading.

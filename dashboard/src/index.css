@@ -201,7 +201,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
   backdrop-filter: var(--glass-blur-small);
 }
 .brand { display: inline-flex; align-items: center; gap: var(--space-2); width: fit-content; color: var(--ink); font-weight: 700; font-size: 1.125rem; text-decoration: none; letter-spacing: -.025em; padding: 0 var(--space-3); }
-.brand-mark { position: relative; flex: 0 0 22px; width: 22px; height: 22px; background: var(--glass-fill); border: 1px solid var(--glass-border); border-radius: 6px; }
+.brand-mark { position: relative; flex: 0 0 22px; width: 22px; height: 22px; background: var(--glass-fill); border: 1px solid var(--glass-border); border-radius: var(--radius-xs); }
 .brand-dot { position: absolute; display: block; border-radius: 50%; opacity: .8; }
 .brand-dot-blue { top: 8px; left: 8px; width: 5px; height: 5px; background: #8da2ff; }
 .brand-dot-violet { top: 4px; left: 4px; width: 4px; height: 4px; background: #b892ff; }
@@ -218,13 +218,13 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 /* ── Summary strip: quiet inline stats in the Activity heading ── */
 .heading-side { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); }
 .summary-strip { display: flex; align-items: baseline; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); overflow: hidden; padding: 6px 12px; color: var(--ink-muted); font-size: .8125rem; background: var(--glass-fill); border: 1px solid var(--glass-border); border-radius: 999px; backdrop-filter: var(--glass-blur-small); }
-.strip-stat strong { color: var(--ink); font-size: .9375rem; font-weight: 600; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.strip-stat strong { color: var(--ink); font-size: .875rem; font-weight: 600; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
 .strip-stat.needs-review { color: var(--ink-soft); font-weight: 600; }
 .strip-stat.needs-review strong { color: var(--review); font-size: 1rem; }
 .strip-stat.all-clear { color: var(--approved); font-weight: 650; }
 .strip-more { border: 0; padding: 0 var(--space-1); background: none; color: var(--ink-muted); font-size: .75rem; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .strip-more:hover { color: var(--ink); }
-.stat-value-skeleton { display: inline-block; vertical-align: baseline; width: 28px; height: .8125rem; border-radius: 4px; background: linear-gradient(90deg, var(--skeleton-a) 20%, color-mix(in srgb, var(--skeleton-a) 35%, var(--skeleton-b)) 50%, var(--skeleton-a) 80%); background-size: 240% 100%; animation: shimmer 1.8s linear infinite; }
+.stat-value-skeleton { display: inline-block; vertical-align: baseline; width: 28px; height: .8125rem; border-radius: var(--radius-xs); background: linear-gradient(90deg, var(--skeleton-a) 20%, color-mix(in srgb, var(--skeleton-a) 35%, var(--skeleton-b)) 50%, var(--skeleton-a) 80%); background-size: 240% 100%; animation: shimmer 1.8s linear infinite; }
 
 /* ── Workspace ── */
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 100vh; }
@@ -240,9 +240,13 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .gitai-hint { margin: calc(-1 * var(--space-3)) 0 var(--space-3); color: var(--ink-muted); font-size: .8125rem; line-height: 1.5; }
 .gitai-hint a { color: var(--ink); text-underline-offset: 3px; }
 .filters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); padding-bottom: 0; border-bottom: none; }
-.filter-pill { display: inline-flex; align-items: center; min-height: 38px; overflow: hidden; padding: 0 12px; border-radius: 999px; background: var(--glass-fill); border: 1px solid var(--glass-border); backdrop-filter: var(--glass-blur-small); transition: background var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard); }
+/* The pill carries no padding of its own: a click on a label's padding focuses a
+   select but never opens its popup, so any inset here is a dead ring around a live
+   control. The select owns the padding and stretches edge to edge instead. */
+.filter-pill { display: inline-flex; align-items: stretch; min-height: 38px; overflow: hidden; padding: 0; border-radius: 999px; background: var(--glass-fill); border: 1px solid var(--glass-border); backdrop-filter: var(--glass-blur-small); transition: background var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard); }
 .filter-pill:hover { background: color-mix(in srgb, var(--glass-fill) 72%, var(--row-fill-hover)); border-color: var(--ink-muted); }
-.filter-pill select { border: 0; background: transparent; color: var(--ink); min-width: 160px; font-size: .8125rem; padding: 0 12px 0 0; outline: none; cursor: pointer; }
+.filter-pill:focus-within { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
+.filter-pill select { flex: 1; min-width: 160px; border: 0; background: transparent; color: var(--ink); font-size: .8125rem; padding: 0 12px; outline: none; cursor: pointer; }
 .filter-pill select option { background: var(--surface-strong); color: var(--ink); }
 
 .queue-button { border: 1px solid var(--divider); background: transparent; color: var(--ink-soft); border-radius: 999px; padding: 8px 12px; font-size: .75rem; font-weight: 700; cursor: pointer; transition: transform var(--motion-press) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard); }
@@ -251,34 +255,41 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .queue-button.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 
 /* ── The ledger: opaque evidence ── */
-.ledger { min-width: 980px; overflow: hidden; background-color: var(--glass-fill); background-image: var(--material-grain); border: 1px solid var(--glass-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-glass); backdrop-filter: var(--glass-blur-large); }
+.ledger { min-width: 900px; overflow: hidden; background-color: var(--glass-fill); background-image: var(--material-grain); border: 1px solid var(--glass-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-glass); backdrop-filter: var(--glass-blur-large); }
 .ledger-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; min-height: 48px; gap: var(--space-3); padding: 8px 12px; color: var(--ink-soft); background: var(--ledger-band-fill); border-bottom: 1px solid var(--divider); font-size: .8125rem; }
 .ledger-toolbar > span { flex: 1 1 320px; }
 .ledger-sort { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .ledger-sort > span { color: var(--ink-soft); font-size: .75rem; }
-.ledger-head, .ledger-row { display: grid; grid-template-columns: 72px minmax(230px, 2.1fr) minmax(150px, 1.2fr) minmax(130px, 1fr) 104px 86px 112px; gap: var(--space-3); align-items: center; }
+.ledger-head, .ledger-row { display: grid; grid-template-columns: 72px minmax(230px, 2.4fr) minmax(150px, 1.2fr) minmax(130px, 1fr) 104px 112px; gap: var(--space-3); align-items: center; }
 .ledger-head { min-height: 42px; padding: 0 var(--space-3); color: var(--ink-soft); background: var(--ledger-band-fill); border-bottom: 1px solid var(--divider); font-size: .75rem; font-weight: 600; letter-spacing: 0; }
+/* The day is the ledger's real structure: heading type and generous air, on the
+   ledger's own band fill rather than bare glass — the shell's white frost reads
+   too light behind dense evidence. The fill covers the air as well as the text, so
+   no glass shows through between days. The prior day's last row rule closes it. */
 .ledger-group { padding-top: 0; }
-.ledger-group + .ledger-group { margin-top: var(--space-2); border-top: 1px solid var(--divider); }
-.ledger-group h2 { display: flex; align-items: center; gap: var(--space-1); min-height: 40px; margin: 0; padding: 0 var(--space-4); color: var(--ink-soft); background: var(--ledger-band-fill); border-bottom: 1px solid var(--divider); font-size: .8125rem; font-weight: 700; line-height: 1.35; }
-.ledger-group-count { color: var(--ink-soft); font-weight: 400; }
+.ledger-group h2 { display: flex; align-items: baseline; gap: var(--space-2); margin: 0; padding: var(--space-6) var(--space-4) var(--space-3); color: var(--ink); background: var(--ledger-band-fill); font-size: 1.125rem; font-weight: 600; line-height: 1.25; letter-spacing: -.02em; }
+.ledger-group:first-of-type h2 { padding-top: var(--space-5); }
+.ledger-group-count { color: var(--ink-muted); font-size: .8125rem; font-weight: 400; letter-spacing: 0; }
 .ledger-row { width: 100%; min-height: 72px; padding: 9px var(--space-3); color: var(--ink-soft); text-align: left; background: var(--row-fill); border: 0; border-bottom: 1px solid var(--divider-soft); cursor: pointer; transition: background var(--motion-fast) var(--ease-standard); }
 .ledger-row.enter-once { animation: ledger-rise var(--motion-enter) var(--ease-out) both; animation-delay: calc(var(--i) * 50ms); }
 .ledger-row:hover, .ledger-row:active { background: var(--row-fill-hover); }
 .ledger-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .ledger-row.selected { background: color-mix(in srgb, var(--accent) 10%, var(--row-fill-hover)); }
 .ledger-row > span { min-width: 0; }
-.row-time, .row-diff { color: var(--ink-muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
+.row-time { color: var(--ink-muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
 .row-change, .row-repo, .row-author { display: flex; flex-direction: column; gap: 3px; }
 .row-change strong { overflow: hidden; color: var(--ink); font-size: .88rem; font-weight: 700; line-height: 1.28; text-overflow: ellipsis; white-space: nowrap; }
 .row-change code { width: fit-content; padding: 2px 6px; color: var(--ink-soft); background: var(--surface-muted); border-radius: var(--radius-xs); font-size: .6875rem; }
+/* Line counts sit under the message: sign carries the meaning, colour only reinforces it */
+.row-change-diff { display: flex; gap: 10px; font-size: .75rem; font-variant-numeric: tabular-nums; }
+.diff-add { color: var(--approved); }
+.diff-del { color: var(--review); }
 .row-repo strong, .row-author strong { overflow: hidden; color: var(--ink); font-size: .78rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .row-repo small, .row-author small { overflow: hidden; color: var(--ink-muted); font-size: .6875rem; text-overflow: ellipsis; white-space: nowrap; }
 .confidence { display: grid; grid-template-columns: 8px 1fr; column-gap: 6px; align-items: center; color: var(--ink-soft); font-size: .6875rem; }
 .confidence i { width: 8px; height: 8px; border: 1px solid currentColor; border-radius: 50%; }
 .confidence-high i { background: var(--ink); }
 .confidence-medium i { background: linear-gradient(90deg, var(--ink) 50%, transparent 50%); }
-.confidence small { grid-column: 2; color: var(--ink-muted); font-size: .625rem; }
 
 /* Review states: color always paired with text; shapes differ per state */
 .review-state { display: inline-flex; align-items: center; gap: 6px; width: fit-content; padding: 7px 11px; border: 1px solid transparent; border-radius: 999px; font-size: .6875rem; font-weight: 600; white-space: nowrap; letter-spacing: .01em; color: var(--ink-soft); background: var(--surface-muted); }
@@ -309,11 +320,9 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .state-card-error .state-card-icon { color: var(--review); background: var(--review-bg); }
 .state-card-empty .state-card-icon { color: var(--approved); background: var(--approved-bg); }
 .state-card-copy { display: flex; flex: 1; flex-direction: column; gap: 4px; }
-.state-card-copy strong { color: var(--ink); font-size: .95rem; }
+.state-card-copy strong { color: var(--ink); font-size: 1rem; }
 .state-card-copy span { color: var(--ink-soft); font-size: .8125rem; }
 .state-card .error-detail { color: var(--review); font-family: ui-monospace, monospace; word-break: break-word; }
-.reason-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
-.reason-chip { display: inline-flex; align-items: center; padding: 3px 9px; border: 1px solid color-mix(in srgb, var(--review) 28%, transparent); border-radius: 999px; background: var(--review-bg); color: var(--review); font-size: .6875rem; font-weight: 700; letter-spacing: 0; }
 .ledger-skeleton { display: grid; gap: 1px; }
 .ledger-skeleton span { height: 66px; background: linear-gradient(90deg, var(--skeleton-a) 20%, color-mix(in srgb, var(--skeleton-a) 35%, var(--skeleton-b)) 50%, var(--skeleton-a) 80%); background-size: 240% 100%; animation: shimmer 1.8s linear infinite; border-bottom: 1px solid var(--divider-soft); }
 @keyframes shimmer { to { background-position: -240% 0; } }
@@ -325,7 +334,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .evidence { width: 100%; height: 100%; overflow-y: auto; background-color: var(--glass-fill); background-image: var(--material-grain); border: 1px solid var(--glass-border); border-right: 0; border-radius: var(--radius-lg) 0 0 var(--radius-lg); box-shadow: var(--shadow-glass); backdrop-filter: var(--glass-blur-large); }
 .evidence-header { min-height: 68px; display: flex; align-items: center; justify-content: space-between; padding: 0 var(--space-5); border-bottom: 1px solid var(--glass-border); }
 .evidence-header h2 { margin: 0; font-size: 1rem; letter-spacing: -.015em; color: var(--ink); }
-.icon-button { width: 44px; height: 44px; color: var(--ink-muted); background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer; font-size: 1.25rem; transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard); }
+.icon-button { width: 44px; height: 44px; color: var(--ink-muted); background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer; font-size: 1.125rem; transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard); }
 .icon-button:hover { color: var(--ink); background: var(--surface-muted); }
 .evidence-section { margin: var(--space-4) var(--space-4) 0; padding: var(--space-4); background: var(--row-fill); border: 1px solid var(--glass-border); border-radius: var(--radius-md); }
 .evidence-section:last-child { margin-bottom: var(--space-4); }
@@ -439,8 +448,8 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
   .evidence-section { margin-inline: var(--space-3); }
   .evidence-header { padding-inline: var(--space-4); }
   .ledger-head, .ledger-row { font-size: .875rem; }
-  .row-time, .row-diff, .row-repo strong, .row-author strong, .ledger-group h2, .evidence-section h3, .evidence dl div, .signal-list, .quiet-copy, .evidence-links a { font-size: .875rem; }
-  .row-repo small, .row-author small, .confidence, .confidence small, .review-state, .ledger-head { font-size: .75rem; }
+  .row-time, .row-change-diff, .row-repo strong, .row-author strong, .evidence-section h3, .evidence dl div, .signal-list, .quiet-copy, .evidence-links a { font-size: .875rem; }
+  .row-repo small, .row-author small, .confidence, .review-state, .ledger-head { font-size: .75rem; }
 }
 
 @media (pointer: coarse) {

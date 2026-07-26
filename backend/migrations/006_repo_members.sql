@@ -1,4 +1,3 @@
--- NOT YET APPLIED. Joint schema decision, sync with DB co-owner before applying. Apply 005 first.
 
 CREATE TABLE repo_members (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -158,16 +158,6 @@ function reviewStateClass(commit: Commit) {
   return 'state-review'
 }
 
-function buildReasonChips(commit: Commit) {
-  const reasons = []
-  if (commit.risk_large_unreviewed || commit.additions + commit.deletions > 300) reasons.push('Large diff')
-  if (commit.risk_no_review) reasons.push('No review')
-  if (commit.risk_ci_unclean) reasons.push('CI not clean')
-  if (commit.risk_sensitive_path) reasons.push('Sensitive file')
-  if (commit.risk_direct_to_main) reasons.push('Direct to main')
-  return reasons
-}
-
 function reviewPriority(commit: Commit) {
   let score = 0
   if (commit.risk_direct_to_main) score += 500
@@ -481,7 +471,7 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
               </div>
             </div>
             <div className="ledger-head" role="row">
-              <span role="columnheader">Time</span><span role="columnheader">Change</span><span role="columnheader">Repository / branch</span><span role="columnheader">Author / agent</span><span role="columnheader">Confidence</span><span role="columnheader">Changes</span><span role="columnheader">State</span>
+              <span role="columnheader">Time</span><span role="columnheader">Change</span><span role="columnheader">Repository / branch</span><span role="columnheader">Author / agent</span><span role="columnheader">Confidence</span><span role="columnheader">State</span>
             </div>
             {activity.isPending && <ActivitySkeleton />}
             {activity.isError && (
@@ -516,15 +506,14 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
                       <span className="row-time" role="cell">{formatTime(commit.pushed_at)}</span>
                       <span className="row-change" role="cell">
                         <strong>{firstLine(commit.message)}</strong>
-                        <code>{commit.short_sha}</code>
-                        <span className="reason-chips" aria-label={`Review reasons for ${commit.short_sha}`}>
-                          {buildReasonChips(commit).slice(0, 2).map((reason) => <span key={reason} className="reason-chip">{reason}</span>)}
+                        <span className="row-change-diff mono">
+                          <span className="diff-add">+{commit.additions}<span className="sr-only"> lines added</span></span>
+                          <span className="diff-del">−{commit.deletions}<span className="sr-only"> lines removed</span></span>
                         </span>
                       </span>
                       <span className="row-repo" role="cell"><strong>{commit.full_name}</strong><small>{commit.branch}</small></span>
                       <span className="row-author" role="cell"><strong>{commit.author_login}</strong><small>{commit.agent_type}</small></span>
-                      <span className={`confidence confidence-${confidence.toLowerCase()}`} role="cell"><i aria-hidden="true" /><span>{confidence}</span><small>{commit.attribution_confidence}</small></span>
-                      <span className="row-diff mono" role="cell">+{commit.additions} −{commit.deletions}</span>
+                      <span className={`confidence confidence-${confidence.toLowerCase()}`} role="cell"><i aria-hidden="true" /><span>{confidence}</span></span>
                       <span className={`review-state ${reviewStateClass(commit)}`} role="cell"><i aria-hidden="true" />{reviewState(commit)}</span>
                     </div>
                   )
