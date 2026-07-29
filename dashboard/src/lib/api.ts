@@ -24,7 +24,10 @@ export async function fetchJson<T>(path: string, init?: { method?: string; json?
     void supabase.auth.signOut()
     throw new Error('Session expired')
   }
-  if (!response.ok) throw new Error(`Request failed: ${response.status}`)
+  if (!response.ok) {
+    const detail = await response.json().then((body) => body?.detail).catch(() => null)
+    throw new Error(typeof detail === 'string' ? detail : `Request failed: ${response.status}`)
+  }
   return response.json() as Promise<T>
 }
 
