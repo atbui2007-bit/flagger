@@ -1,4 +1,4 @@
--- NOT YET APPLIED. Joint schema decision, sync with DB co-owner before applying. Apply 002, then 003, then 004.
+
 
 ALTER TABLE repos ALTER COLUMN github_repo_id TYPE bigint;
 

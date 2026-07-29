@@ -50,7 +50,7 @@ motion.
 Flagger v1 is live: backend on Railway (`backend/Dockerfile` + `backend/railway.json`,
 runbook in `backend/DEPLOY.md`), dashboard on Vercel, real GitHub App created with its
 slug in `VITE_GITHUB_APP_INSTALL_URL`, Supabase GitHub OAuth enabled (auth verified
-end-to-end 2026-07-14), migrations 001–005 applied to production. An external user can
+end-to-end 2026-07-14), migrations 001–009 applied to production. An external user can
 install the App with zero CLI/config, sign in, and see a correctly-scoped activity feed
 with honest attribution confidence and reachable "low" risk.
 
@@ -78,7 +78,7 @@ Backend file map:
 backend/
 ├── main.py                    FastAPI app, webhook signature verification, install guard, event router
 ├── database.py                async engine + session factory (asyncpg, PgBouncer-safe)
-├── auth.py                    require_user() — Supabase JWT verification; entitlement_filter()
+├── auth.py                    require_user() — Supabase JWT verification; entitlement_filter() / repo_entitlement_filter()
 ├── github_client.py           shared httpx AsyncClient + retry/backoff, lifespan-closed
 ├── github_app.py              GitHub App JWT → per-installation access token, cached + locked
 ├── log_config.py              structured logging setup
@@ -89,10 +89,11 @@ backend/
 ├── handlers/                  Installation, PullRequests, WorkflowRun, PullRequestReview, push
 ├── routers/
 │   ├── activity.py            GET /activity/recent, /summary, /facets, /agents
+│   ├── repos.py               GET /repos — lists the repos table, not commit-derived
 │   ├── timeline.py            GET /repos/{owner}/{name}/timeline
 │   ├── prs.py                 GET /repos/{owner}/{name}/prs/{number}
-│   └── installations.py       POST /installations/claim, GET /installations
-└── migrations/                001_v1_schema … 005_installation_members (all applied)
+│   └── installations.py       POST /installations/claim, /sync-access, GET /installations
+└── migrations/                001_v1_schema … 009_auth_identities_grant (all applied)
 ```
 
 ### Database
@@ -100,11 +101,13 @@ backend/
 Six core tables (`001_v1_schema.sql`): `repos` → `commits` → `file_changes`;
 `commits.pull_request_id` (nullable, inferred at push time from open PR on
 `repo_id`+`head_branch`) → `pull_requests` → `ci_runs`, `reviews`. Plus
-`installations` (003) and `installation_members` (005). RLS enabled default-deny on
-all tables (backend connects as a `BYPASSRLS` role through the pooler). Soft-delete
-everywhere state is removable (`repos.removed_at`, `installations.suspended_at`/
-`deleted_at`, `installation_members.removed_at`) — the audit trail must survive
-removal events; default reads guard with `WHERE ... IS NULL`.
+`installations` (003), `installation_members` (005), and `repo_members` (006). RLS is
+enabled on `installations`/`installation_members`/`repo_members` only and carries no
+policies; the backend connects as a `BYPASSRLS` role through the pooler, so tenant
+isolation rests entirely on the API layer today (§6 item 3). Soft-delete everywhere
+state is removable (`repos.removed_at`, `installations.suspended_at`/`deleted_at`,
+`installation_members.removed_at`, `repo_members.removed_at`) — the audit trail must
+survive removal events; default reads guard with `WHERE ... IS NULL`.
 
 ### Attribution
 
@@ -152,21 +155,25 @@ missing/suspended/deleted installation → 409) runs before any handler.
 secret or JWKS ES256/RS256; checks audience + issuer). `AUTH_DISABLED=true` is a
 local-dev-only escape hatch. Every read query is scoped by
 `auth.py::entitlement_filter` — an IN-subquery on `commits.repo_id` over the caller's
-active `installation_members` rows. `get_repo` 404s (not 403) for unentitled repos to
-avoid existence leaks. `POST /installations/claim` links a signed-in user to an
+active `installation_members` **and** `repo_members` rows. One `_ENTITLED_REPO_IDS`
+subquery string backs both `ENTITLED_COMMITS_PREDICATE` (`commits.repo_id IN …`) and
+`ENTITLED_REPOS_PREDICATE` (`repos.id IN …`, used by `GET /repos` via
+`repo_entitlement_filter`) — change the subquery once, never fork it. `get_repo` 404s
+(not 403) for unentitled repos to avoid existence leaks. `POST /installations/claim` links a signed-in user to an
 installation after the App install redirect: verifies the GitHub OAuth
 `provider_token` belongs to the JWT's GitHub identity (`GET /user` vs
 `user_metadata.provider_id`), checks the installation appears in
 `GET /user/installations`, then idempotently upserts installation + membership
 (role `admin`). The dashboard (`lib/auth.tsx`) owns session state, stashes
 `provider_token` in sessionStorage at OAuth redirect, captures the App Setup redirect
-before React renders, and claims it in `Connect.tsx`; 401s sign the user out.
+before React renders, and claims it in `Onboarding.tsx`; 401s sign the user out.
 
 ### Backend API
 
 - `POST /webhook` — single endpoint, event type from `X-GitHub-Event`, signature-verified, dispatched to `handlers/`.
 - `GET /activity/recent` — cursor-paginated commit feed (repository, contributor, agent, risk, confidence, search filters).
 - `GET /activity/summary`, `/facets`, `/agents` — aggregates, filter options, per-agent rollup for the same filter set.
+- `GET /repos` — connected repositories read from the `repos` table, so a repo is visible the moment it is installed rather than on its first push. `LEFT JOIN installations` deliberately: `repo_members` can entitle a repo whose `installation_id` is NULL, and an inner join would silently drop it.
 - `GET /repos/{owner}/{name}/timeline` — same cursor pattern, one repo.
 - `GET /repos/{owner}/{name}/prs/{number}` — PR detail (four separate queries, not a join — joins would multiply rows).
 - `POST /installations/claim`, `GET /installations` — see auth above.
@@ -181,8 +188,9 @@ One view, two lenses: the **Activity** ledger (cursor-paginated, grouped by day,
 filters + debounced search, Evidence Inspector side panel with per-signal risk
 breakdown and GitHub/PR links) and the **Agents** table (per-agent share, reach,
 certain-vs-suspected split — clicking an agent just pre-filters the Activity view).
-`Connect`/`Repositories`/`Settings` handle onboarding and installation state. The
-individual-developer view is the same component with a contributor filter — never two
+`Onboarding` owns first-run (see §5); `Connect`/`Repositories`/`Settings` handle
+installation state afterwards. The individual-developer view is the same component
+with a contributor filter — never two
 implementations. Env-driven config: `VITE_API_BASE` (Railway URL in prod),
 `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`, `VITE_GITHUB_APP_INSTALL_URL`. Build is
 `tsc -b && vite build` (typecheck enforced). No live/WebSocket updates — the backend
@@ -216,6 +224,11 @@ Details live in git history if ever needed.
 8. SQLAlchemy `Row` objects must be converted with `dict(row._mapping)` before FastAPI
    can serialize them — this has bitten every new endpoint; do it proactively.
 9. Windows / Python 3.13 dev environment — mind path separators and shell syntax.
+   Related: Codex `--write` runs on this machine have silently replaced every
+   non-ASCII glyph in the files they rewrote with ASCII lookalikes (`☀`→`L`,
+   `⌕`→`/`, `→`→`-&gt;`, `—`/`·`/`…`→`-`/`-`/`...`). The build and typecheck pass, so
+   no gate catches it. After a Codex UI edit, diff the character sets
+   (`grep -oP "[^\x00-\x7F]"` on HEAD vs the working copy) before trusting the result.
 10. Schema and infrastructure changes are joint decisions with a DB collaborator who
     isn't in this workspace — surface migrations clearly, never apply silently.
 11. Soft-delete convention: removable state gets a `removed_at`-style column and a
@@ -294,16 +307,82 @@ feed, VS Code extension.
 
 ---
 
-## 5. Known-Bugs Ledger (from the 2026-07-19 four-agent review)
+## 5. Onboarding — Shipped 2026-07-28
+
+**Status: built and E2E-verified by the user on a test GitHub account, 2026-07-28.**
+The flow is **sign in → install GitHub App → dashboard**. No migration; the only
+backend addition is `GET /repos`.
+
+**Problem it solved.** All the pieces existed but nothing sequenced them, so a
+signed-in user with zero installations was dropped on Activity and told
+"✓ All clear / No activity matches these filters / Clear filters" — every message
+wrong (ledger #16). Compounding it: installed repos were invisible until their first
+push (#17), and claim failures surfaced as `Request failed: 403` beside a Retry button
+that could never succeed (#18).
+
+**The gate lives in `App.tsx`.** `GET /installations` decides onboarding vs dashboard,
+and it is the single source of that truth — never `/activity/facets`, which is
+commit-derived and necessarily misses a fresh install. Rules, in order:
+
+- Nothing routes until the gate answers; `auth.status === 'loading'` and an unresolved
+  gate both render a `Splash` (reuses `.login-panel`). This is what prevents a flash
+  of the wrong empty state.
+- **On gate error, fall through to normal routing.** Never trap a user on the splash
+  because one request failed.
+- Redirect is bidirectional, and the reverse direction is what lands a
+  just-claimed user on the dashboard:
+  `!connected && route ∉ {onboarding, settings} → /onboarding`;
+  `connected && route === onboarding && !pending → /`.
+  `settings` stays reachable while unconnected — with no sidebar on Onboarding it is
+  the only way to sign out. The `!pending` guard lets an already-connected user add a
+  second installation without being bounced mid-claim.
+- The gate query waits on `syncSettled`, so a collaborator entitled via
+  `sync-access` is not flashed the onboarding page before their grants land. That wait
+  is capped at 8s — `fetch` has no timeout and a hung sync would otherwise strand the
+  user on the splash forever.
+- `AUTH_DISABLED` local dev routes a pending install to `/connect`, not `/onboarding`:
+  there is no claim without auth, and Onboarding renders full-bleed with a sign-out
+  button that no-ops when `supabase` is null.
+
+**`Onboarding.tsx`** renders outside the app shell exactly as `Login` does, three steps
+on the existing `.connect-steps` list with `data-state` done/active/pending. **The
+claim moved here out of `Connect.tsx` — moved, not copied.** One implementation, per
+the one-view rule. Its two error branches are the point: an expired-or-revoked GitHub
+token offers **re-authentication**, everything else offers Retry with the real backend
+`detail`. `Connect.tsx` is now purely manage-installations.
+
+**Supporting changes.** `lib/api.ts` surfaces FastAPI's `detail` instead of
+`Request failed: N` (guarded with `typeof detail === 'string'` — a 422 returns `detail`
+as an *array* and must not be stringified into the UI). `App.tsx`'s access-sync is now
+keyed per Supabase user id with a `useRef` in-flight guard against StrictMode's
+double-invoke, replacing the module-level `accessSyncStarted` that never reset (#20);
+`queryClient.clear()` on sign-out (#21). `ActivityFeed` gained a "Watching N
+repositories / Activity appears on the next push" banner, shown only when no filters
+are active — under a filter, zero commits means the filter excluded them. Its empty
+state only offers "Clear filters" when filters are actually active, and a zero-commit
+lead sentence no longer reads as an all-clear.
+
+**Live evidence the `/repos` change matters:** on production data, `GET /repos`
+returned 6 repositories where `/activity/facets` returned 4 — two installed repos were
+invisible in the UI before this.
+
+**Known gaps, deliberately not built:** the member-path claim 409 (install redirect
+outracing the webhook — note the *admin* path already self-heals because claim upserts
+`installations` before membership), and `setup_action=request` org-approval handling.
+
+---
+
+## 6. Known-Bugs Ledger (from the 2026-07-19 four-agent review)
 
 A full review (2 Claude subagents + 2 Codex tasks: backend correctness, new-user
 walkthrough, dashboard bug hunt, security) ran 2026-07-19. The "this week" slice
 shipped the same night (commit `1fab4b8` + migration 007): claim privilege-escalation
 fix, `AUTH_DISABLED` production gate, merge-commit→PR linking, >20-commit push
 backfill, ID-keyed webhook guard with rename self-heal, payload debug-log removal.
-Everything below is **found, verified, and still open** — ranked within each group.
-Details (exact failure scenarios, line refs) are in the session reports; SQL injection
-was audited clean (all user input parameterized).
+Everything below was **found and verified** — ranked within each group. Items struck
+through or marked FIXED/PARTIALLY FIXED carry the date and what closed them; treat
+anything unmarked as still open. Details (exact failure scenarios, line refs) are in
+the session reports; SQL injection was audited clean (all user input parameterized).
 
 ### Security (this month)
 
@@ -353,25 +432,30 @@ was audited clean (all user input parameterized).
 
 ### Dashboard / first-run UX (this month — these lose new users)
 
-16. Signed-in user with zero installations lands on Activity and sees "✓ All clear"
-    + "No activity matches these filters / Clear filters" — every message wrong; the
-    page needs a real not-connected empty state pointing at Connect.
-17. Freshly installed repos are invisible until their first push — facets and
-    `Repositories.tsx` build from `commits`, contradicting "takes under a minute to
-    appear". List repos from the `repos` table instead.
-18. Connect claim traps: wrong-GitHub-account claim shows raw "Request failed: 403"
-    with an eternal Retry and the pending id re-fires every reload (no dismiss path);
-    expired-but-present provider_token hits the same dead Retry because backend maps
-    GitHub 401→403 and `needsReauth` only checks token *absence*.
+16. ~~Signed-in user with zero installations lands on Activity and sees "✓ All clear"
+    + "No activity matches these filters / Clear filters".~~ **FIXED 2026-07-28** (§5):
+    the `GET /installations` gate routes them to `Onboarding`, and the Activity empty
+    state / lead sentence no longer claim an all-clear at zero commits.
+17. ~~Freshly installed repos are invisible until their first push — facets and
+    `Repositories.tsx` build from `commits`.~~ **FIXED 2026-07-28** (§5): `GET /repos`
+    reads the `repos` table; `Repositories.tsx` and `Connect.tsx` both source from it.
+18. **PARTIALLY FIXED 2026-07-28.** Fixed: claim errors now show the backend's real
+    `detail` (`lib/api.ts`), and an expired-but-present `provider_token` routes to
+    re-authentication instead of a dead Retry (`Onboarding.tsx` classifies the error
+    rather than only testing for token *absence*). **Still open:** there is no dismiss
+    path — a pending installation id that keeps failing stays in sessionStorage and
+    re-fires the claim on every reload.
 19. Any API 401 silently signs the user out mid-session with no message
     (`lib/api.ts`); a JWT misconfig becomes an infinite login loop. Show a
     "session expired" state.
-20. `accessSyncStarted` is a module-level flag never reset on sign-out (`App.tsx`) —
-    user B on the same tab never syncs; `provider_token` is per-tab sessionStorage so
-    new tabs/restarts silently skip sync until repo grants TTL out with no visible
-    remedy outside Settings. Also surface sync failure on the Activity page itself.
-21. `queryClient` cache isn't cleared on sign-out — next account briefly sees the
-    previous account's data.
+20. **PARTIALLY FIXED 2026-07-28.** Fixed: access-sync is keyed per Supabase user id
+    with a `useRef` in-flight guard, so user B on the same tab now syncs. **Still
+    open:** sync failure is swallowed by `.catch(() => {})` and never surfaced on the
+    Activity page; `provider_token` is still per-tab sessionStorage, so new
+    tabs/restarts skip sync until repo grants TTL out, with no remedy outside Settings.
+21. ~~`queryClient` cache isn't cleared on sign-out — next account briefly sees the
+    previous account's data.~~ **FIXED 2026-07-28** — `queryClient.clear()` on
+    `signed-out` in `App.tsx`.
 22. Feed mechanics: double-click Next corrupts `cursorHistory`; filter changes race
     the stale cursor for one render (query key uses new filters + old cursor);
     search doesn't escape `%`/`_`; Evidence Inspector stays open showing a stale

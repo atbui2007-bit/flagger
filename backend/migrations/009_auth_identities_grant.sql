@@ -1,4 +1,4 @@
--- NOT YET APPLIED. Joint schema decision, sync with DB co-owner before applying.
+
 -- F3 fix: /installations/claim and /sync-access now bind the provider token to the
 -- GitHub id GoTrue recorded at OAuth (auth.identities), not the user-editable
 -- user_metadata.provider_id. The backend role needs read access to that table.
