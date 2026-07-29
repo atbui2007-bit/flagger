@@ -9,6 +9,7 @@ from handlers.PullRequestReview import handle_pull_request_review
 from handlers.push import handle_push
 from handlers.Installation import handle_installation, handle_installation_repositories
 from routers.activity import router as activity_router
+from routers.repos import router as repos_router
 from routers.timeline import router as timeline_router
 from routers.prs import router as prs_router
 from routers.installations import router as installations_router
@@ -53,6 +54,7 @@ app.add_middleware(
 )
 
 app.include_router(activity_router, prefix = "/activity", dependencies=[Depends(require_user)])
+app.include_router(repos_router, prefix = "/repos", dependencies=[Depends(require_user)])
 app.include_router(timeline_router, prefix = "/repos", dependencies=[Depends(require_user)])
 app.include_router(prs_router, prefix = "/repos", dependencies=[Depends(require_user)])
 app.include_router(installations_router, prefix = "/installations", dependencies=[Depends(require_user)])
