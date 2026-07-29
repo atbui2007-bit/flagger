@@ -1,4 +1,4 @@
--- NOT YET APPLIED. Joint schema decision, sync with DB co-owner before applying. Apply 002 then 003. repos.webhook_secret is planned for deprecation once the GitHub App webhook secret (single app-level secret) fully replaces per-repo secrets; do not drop it in this migration.
+
 
 CREATE TABLE installations (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
