@@ -79,7 +79,7 @@ async def current_user(claims: dict = Depends(require_user)) -> CurrentUser:
 # Entitlement: a user sees commits through either an active installation-wide
 # membership or a live repo-scoped membership. Kept as an IN-subquery so it
 # composes with the existing clauses/params pattern in one round-trip.
-ENTITLED_COMMITS_PREDICATE = """commits.repo_id IN (
+_ENTITLED_REPO_IDS = """
     SELECT r.id FROM repos r
     JOIN installation_members im ON im.installation_id = r.installation_id
     WHERE im.supabase_user_id = :auth_user_id AND im.removed_at IS NULL
@@ -89,10 +89,18 @@ ENTITLED_COMMITS_PREDICATE = """commits.repo_id IN (
     WHERE rm.supabase_user_id = :auth_user_id
       AND rm.removed_at IS NULL
       AND rm.access_expires_at > NOW()
-)"""
+"""
+ENTITLED_COMMITS_PREDICATE = f"commits.repo_id IN ({_ENTITLED_REPO_IDS})"
+ENTITLED_REPOS_PREDICATE = f"repos.id IN ({_ENTITLED_REPO_IDS})"
 
 
 def entitlement_filter(user: CurrentUser) -> tuple[list[str], dict]:
     if user.auth_disabled:
         return [], {}
     return [ENTITLED_COMMITS_PREDICATE], {"auth_user_id": user.id}
+
+
+def repo_entitlement_filter(user: CurrentUser) -> tuple[list[str], dict]:
+    if user.auth_disabled:
+        return [], {}
+    return [ENTITLED_REPOS_PREDICATE], {"auth_user_id": user.id}
