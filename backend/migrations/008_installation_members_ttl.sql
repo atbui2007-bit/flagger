@@ -1,4 +1,4 @@
--- NOT YET APPLIED. Joint schema decision, sync with DB co-owner before applying. Apply 007 first.
+
 -- Gives installation-wide grants the same TTL model repo_members already uses (migration 006):
 -- an off-boarded org admin should lose read access once their membership stops revalidating via
 -- sync-access, not keep it until someone manually sets removed_at.
