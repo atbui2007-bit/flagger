@@ -49,6 +49,10 @@ interface FacetsResponse {
   agents: string[]
 }
 
+interface RepoResponse {
+  data: Array<{ full_name: string }>
+}
+
 interface AgentSummary {
   agent_type: string
   commits: number
@@ -315,6 +319,10 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
     queryKey: ['activity-facets'],
     queryFn: () => fetchJson('/activity/facets'),
   })
+  const repos = useQuery<RepoResponse>({
+    queryKey: ['repos'],
+    queryFn: () => fetchJson('/repos'),
+  })
 
   useEffect(() => {
     setCursor(null)
@@ -425,6 +433,11 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
   const summaryRepositories = summary.data?.repositories ?? 0
   const summaryAgentCommits = summary.data?.ai_authored_commits ?? 0
   const summaryCertain = summary.data?.certain_attribution ?? 0
+  const connectedRepoCount = repos.data?.data.length ?? 0
+  const hasActiveFilters = Object.values(filters).some(Boolean)
+  // Only claim "waiting for the first push" for the unfiltered ledger -- with a filter
+  // applied, zero commits means the filter excluded them, not that nothing has arrived.
+  const waitingForFirstPush = summary.isSuccess && !hasActiveFilters && connectedRepoCount > 0 && summaryTotalCommits === 0
   const suspectedShare = summaryTotalCommits ? Math.round(((summaryTotalCommits - summaryCertain) / summaryTotalCommits) * 100) : 0
   const activityErrorMessage = activity.error instanceof Error ? activity.error.message : 'Unknown error'
   let leadSentence = `${greeting} Loading review summary…`
@@ -435,7 +448,10 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
     if (reviewNeeded > 0) {
       leadSentence = `${greeting} ${reviewNeeded} ${reviewNeeded === 1 ? 'change needs' : 'changes need'} review in this view of ${repositories} ${repositories === 1 ? 'repository' : 'repositories'}.`
     } else if (reviewNeeded === 0) {
-      leadSentence = `${greeting} No current changes match Flagger's review-needed signals.`
+      // Zero commits is not an all-clear -- nothing has been measured yet.
+      leadSentence = summaryTotalCommits === 0
+        ? `${greeting} No AI-authored activity in this view yet.`
+        : `${greeting} No current changes match Flagger's review-needed signals.`
     }
   }
 
@@ -485,6 +501,16 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
             </p>
           )}
 
+          {waitingForFirstPush && (
+            <div className="state-card" role="status">
+              <div className="state-card-icon" aria-hidden="true">○</div>
+              <div className="state-card-copy">
+                <strong>Watching {connectedRepoCount} {connectedRepoCount === 1 ? 'repository' : 'repositories'}.</strong>
+                <span>Activity appears on the next push.</span>
+              </div>
+            </div>
+          )}
+
           <div className="filters" aria-label="Activity filters">
             <FilterSelect label="Repository" value={filters.repository} options={repositoryOptions} onChange={(value) => updateFilter('repository', value)} />
             <FilterSelect label="Contributor" value={filters.contributor} options={contributorOptions} onChange={(value) => updateFilter('contributor', value)} />
@@ -520,10 +546,10 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
               <div className="state-card state-card-empty">
                 <div className="state-card-icon" aria-hidden="true">○</div>
                 <div className="state-card-copy">
-                  <strong>No activity matches these filters.</strong>
-                  <span>Clear a filter to broaden the ledger.</span>
+                  <strong>{hasActiveFilters ? 'No activity matches these filters.' : 'No activity has arrived yet.'}</strong>
+                  <span>{hasActiveFilters ? 'Clear a filter to broaden the ledger.' : 'Flagger will show commits here after the next push to a connected repository.'}</span>
                 </div>
-                <button onClick={() => setFilters(initialFilters)}>Clear filters</button>
+                {hasActiveFilters && <button onClick={() => setFilters(initialFilters)}>Clear filters</button>}
               </div>
             )}
             {groups.map(([group, commits]) => (
