@@ -1,6 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchJson, GIT_AI_URL } from '../lib/api'
+import FilterSelect from './FilterSelect'
 
 interface Commit {
   id: string
@@ -388,6 +389,25 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
     groups.forEach(([, commits]) => commits.forEach((commit) => indexes.set(commit.id, index++)))
     return indexes
   }, [groups])
+  const repositoryOptions = useMemo(() => [
+    { value: '', label: 'All repositories' },
+    ...(facets.data?.repositories.map((value) => ({ value, label: value })) ?? []),
+  ], [facets.data?.repositories])
+  const contributorOptions = useMemo(() => [
+    { value: '', label: 'All contributors' },
+    ...(facets.data?.contributors.map((value) => ({ value, label: value })) ?? []),
+  ], [facets.data?.contributors])
+  const agentOptions = useMemo(() => [
+    { value: '', label: 'All agents' },
+    ...(facets.data?.agents.map((value) => ({ value, label: value })) ?? []),
+  ], [facets.data?.agents])
+  const riskOptions = useMemo(() => [
+    { value: '', label: 'Any risk signal' },
+    { value: 'critical', label: 'Critical' },
+    { value: 'high', label: 'High' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'low', label: 'Low' },
+  ], [])
 
   function updateFilter(key: keyof Filters, value: string) {
     setFilters((current) => ({ ...current, [key]: value }))
@@ -466,10 +486,10 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
           )}
 
           <div className="filters" aria-label="Activity filters">
-            <label className="filter-pill"><span className="sr-only">Repository</span><select value={filters.repository} onChange={(e) => updateFilter('repository', e.target.value)}><option value="">All repositories</option>{facets.data?.repositories.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-            <label className="filter-pill"><span className="sr-only">Contributor</span><select value={filters.contributor} onChange={(e) => updateFilter('contributor', e.target.value)}><option value="">All contributors</option>{facets.data?.contributors.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-            <label className="filter-pill"><span className="sr-only">Agent</span><select value={filters.agent} onChange={(e) => updateFilter('agent', e.target.value)}><option value="">All agents</option>{facets.data?.agents.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-            <label className="filter-pill"><span className="sr-only">Risk signal</span><select value={filters.risk} onChange={(e) => updateFilter('risk', e.target.value)}><option value="">Any risk signal</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
+            <FilterSelect label="Repository" value={filters.repository} options={repositoryOptions} onChange={(value) => updateFilter('repository', value)} />
+            <FilterSelect label="Contributor" value={filters.contributor} options={contributorOptions} onChange={(value) => updateFilter('contributor', value)} />
+            <FilterSelect label="Agent" value={filters.agent} options={agentOptions} onChange={(value) => updateFilter('agent', value)} />
+            <FilterSelect label="Risk signal" value={filters.risk} options={riskOptions} onChange={(value) => updateFilter('risk', value)} />
           </div>
 
           <div className="ledger" role="table" aria-label="Commit activity">

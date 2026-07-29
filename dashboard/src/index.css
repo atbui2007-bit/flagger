@@ -242,14 +242,32 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .gitai-hint { margin: calc(-1 * var(--space-3)) 0 var(--space-3); color: var(--ink-muted); font-size: .8125rem; line-height: 1.5; }
 .gitai-hint a { color: var(--ink); text-underline-offset: 3px; }
 .filters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); padding-bottom: 0; border-bottom: none; }
-/* The pill carries no padding of its own: a click on a label's padding focuses a
-   select but never opens its popup, so any inset here is a dead ring around a live
-   control. The select owns the padding and stretches edge to edge instead. */
+/* The pill carries no padding of its own: a click on outer padding focuses a
+   button but never opens its popup, so any inset here is a dead ring around a live
+   control. The button owns the padding and stretches edge to edge instead. */
 .filter-pill { display: inline-flex; align-items: stretch; min-height: 38px; overflow: hidden; padding: 0; border-radius: 999px; background: var(--glass-fill); border: 1px solid var(--glass-border); backdrop-filter: var(--glass-blur-small); transition: background var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard); }
 .filter-pill:hover { background: color-mix(in srgb, var(--glass-fill) 72%, var(--row-fill-hover)); border-color: var(--ink-muted); }
 .filter-pill:focus-within { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
-.filter-pill select { flex: 1; min-width: 160px; border: 0; background: transparent; color: var(--ink); font-size: .8125rem; padding: 0 12px; outline: none; cursor: pointer; }
-.filter-pill select option { background: var(--surface-strong); color: var(--ink); }
+.filter-pill-trigger { display: inline-flex; flex: 1; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 160px; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: .8125rem; padding: 0 12px; outline: none; cursor: pointer; }
+/* The pill owns the focus ring (:focus-within above) so it traces the 999px shape;
+   the square button outline inside it would read as a second, mismatched ring. This
+   looks redundant next to the base outline:none, but it isn't — the global
+   button:focus-visible rule outranks a lone class, so suppressing it needs a
+   pseudo-class here to match specificity. */
+.filter-pill-trigger:focus-visible { outline: none; }
+.filter-pill[data-active="true"] { background: color-mix(in srgb, var(--accent) 12%, var(--glass-fill)); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.filter-pill[data-active="true"] .filter-pill-trigger { color: var(--accent); font-weight: 600; }
+.filter-caret { flex: 0 0 8px; width: 8px; height: 8px; color: var(--ink-muted); fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; transition: transform var(--motion-fast) var(--ease-standard); }
+.filter-pill-trigger[aria-expanded="true"] .filter-caret { transform: rotate(180deg); }
+.filter-popover { position: fixed; margin: 0; padding: var(--space-1); background: var(--glass-fill); border: 1px solid var(--glass-border); border-radius: var(--radius-md); box-shadow: var(--shadow-overlay); backdrop-filter: var(--glass-blur-small); overflow: hidden; }
+.filter-popover:popover-open { animation: filter-popover-enter var(--motion-ui) var(--ease-out); }
+.filter-popover-list { max-height: min(320px, 60vh); overflow-y: auto; background: var(--row-fill); border-radius: var(--radius-sm); }
+.filter-option { display: flex; align-items: center; gap: var(--space-2); min-height: 34px; padding: 0 var(--space-2); color: var(--ink-soft); font-size: .8125rem; border-radius: var(--radius-xs); cursor: pointer; }
+.filter-option:hover, .filter-option.active { background: var(--row-fill-hover); color: var(--ink); }
+.filter-option[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 12%, var(--row-fill)); color: var(--accent); font-weight: 600; }
+.filter-option-check { flex: 0 0 16px; width: 16px; height: 16px; color: currentColor; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; visibility: hidden; }
+.filter-option[aria-selected="true"] .filter-option-check { visibility: visible; }
+@keyframes filter-popover-enter { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 
 .queue-button { border: 1px solid var(--divider); background: transparent; color: var(--ink-soft); border-radius: 999px; padding: 8px 12px; font-size: .75rem; font-weight: 700; cursor: pointer; transition: transform var(--motion-press) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard); }
 .queue-button:hover { color: var(--ink); background: var(--surface-strong); }
@@ -451,7 +469,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
   .page-narrow, .settings-page { padding: var(--space-5) var(--space-4); }.pr-heading { flex-direction: column; }.settings-section dl div { grid-template-columns: 1fr; }.connect-actions { align-items: flex-start; flex-direction: column; }
   .filters { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0; scrollbar-width: none; }
   .filters::-webkit-scrollbar { display: none; }
-  .filters select { min-height: 44px; }
+  .filter-pill-trigger { min-height: 44px; }
   .evidence-section { margin-inline: var(--space-3); }
   .evidence-header { padding-inline: var(--space-4); }
   .ledger-head, .ledger-row { font-size: .875rem; }
@@ -461,6 +479,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 
 @media (pointer: coarse) {
   .ledger-row { min-height: 76px; }
+  .filter-option { min-height: 44px; }
   .strip-more { padding: 12px var(--space-2); }
   .pagination button { min-height: 44px; }
   .primary-button, .ghost-button, .repository-row, .connect-actions a, .reporting-row { min-height: 44px; }
