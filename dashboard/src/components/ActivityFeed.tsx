@@ -115,6 +115,19 @@ function formatAgentName(value: string) {
   return value
 }
 
+function activityRowLabel(commit: Commit) {
+  return [
+    firstLine(commit.message),
+    `Repository ${commit.full_name}`,
+    `Branch ${commit.branch}`,
+    `Author ${commit.author_login}`,
+    `Agent ${formatAgentName(commit.agent_type)}`,
+    `Risk ${riskLabel(commit.risk_level)}`,
+    `Review state ${reviewState(commit)}`,
+    `Time ${formatTime(commit.pushed_at)}`,
+  ].join(' · ')
+}
+
 function AgentBreakdown({ onInspect }: { onInspect: (agent: string) => void }) {
   const agents = useQuery<AgentsResponse>({
     queryKey: ['agent-breakdown'],
@@ -128,28 +141,28 @@ function AgentBreakdown({ onInspect }: { onInspect: (agent: string) => void }) {
         <div><h1>Agents</h1><p>Attribution, review coverage, and repository reach by authoring agent</p></div>
         <span>{agents.data?.data.length ?? '—'} identities observed</span>
       </div>
-      <div className="agents-ledger" role="table" aria-label="Agent activity breakdown">
-        <div className="agents-head" role="row">
-          <span role="columnheader">Agent</span><span role="columnheader">Commits</span><span role="columnheader">Share</span><span role="columnheader">Coverage</span><span role="columnheader">Attribution</span><span role="columnheader">Review state</span><span role="columnheader">Last active</span>
+      <section className="agents-ledger" aria-label="Agent activity breakdown">
+        <div className="agents-head" aria-hidden="true">
+          <span>Agent</span><span>Commits</span><span>Share</span><span>Coverage</span><span>Attribution</span><span>Review state</span><span>Last active</span>
         </div>
         {agents.isPending && <ActivitySkeleton />}
-        {agents.isError && <div className="state-message"><strong>Agent activity could not be loaded.</strong><span>Check that the API is running, then try again.</span><button onClick={() => agents.refetch()}>Retry</button></div>}
+        {agents.isError && <div className="state-message" role="alert"><strong>Agent activity could not be loaded.</strong><span>Check that the API is running, then try again.</span><button onClick={() => agents.refetch()}>Retry</button></div>}
         {agents.data?.data.map((agent) => {
           const share = total ? Math.round((agent.commits / total) * 100) : 0
           const certain = agent.commits ? Math.round((agent.certain_attribution / agent.commits) * 100) : 0
           return (
-            <button className="agent-row" role="row" key={agent.agent_type} onClick={() => onInspect(agent.agent_type)} aria-label={`View ${agent.agent_type} activity`}>
-              <span className="agent-identity" role="cell"><i aria-hidden="true">{formatAgentName(agent.agent_type).slice(0, 1).toUpperCase()}</i><span><strong>{formatAgentName(agent.agent_type)}</strong><small>{agent.sources.join(' · ').replace(/_/g, ' ')}</small></span></span>
-              <strong className="agent-count mono" role="cell">{agent.commits}</strong>
-              <span className="agent-share" role="cell"><span><i style={{ width: `${share}%` }} /></span><small>{share}%</small></span>
-              <span className="agent-detail" role="cell"><strong>{agent.repositories} repos</strong><small>{agent.contributors} contributors</small></span>
-              <span className="agent-detail" role="cell"><strong>{certain}% certain</strong><small>{agent.commits - agent.certain_attribution} suspected</small></span>
-              <span className={`review-state ${agent.review_needed ? 'state-needs-review' : 'state-approved'}`} role="cell"><i aria-hidden="true" />{agent.review_needed ? `${agent.review_needed} need review` : 'Reviewed'}</span>
-              <span className="agent-last-active" role="cell">{dateGroup(agent.last_active)}<small>+{agent.additions} −{agent.deletions}</small></span>
+            <button type="button" className="agent-row" key={agent.agent_type} onClick={() => onInspect(agent.agent_type)} aria-label={`View ${agent.agent_type} activity`}>
+              <span className="agent-identity"><i aria-hidden="true">{formatAgentName(agent.agent_type).slice(0, 1).toUpperCase()}</i><span><strong>{formatAgentName(agent.agent_type)}</strong><small>{agent.sources.join(' · ').replace(/_/g, ' ')}</small></span></span>
+              <strong className="agent-count mono">{agent.commits}</strong>
+              <span className="agent-share"><span><i style={{ width: `${share}%` }} /></span><small>{share}%</small></span>
+              <span className="agent-detail"><strong>{agent.repositories} repos</strong><small>{agent.contributors} contributors</small></span>
+              <span className="agent-detail"><strong>{certain}% certain</strong><small>{agent.commits - agent.certain_attribution} suspected</small></span>
+              <span className={`review-state ${agent.review_needed ? 'state-needs-review' : 'state-approved'}`}><i aria-hidden="true" />{agent.review_needed ? `${agent.review_needed} need review` : 'Reviewed'}</span>
+              <span className="agent-last-active">{dateGroup(agent.last_active)}<small>+{agent.additions} −{agent.deletions}</small></span>
             </button>
           )
         })}
-      </div>
+      </section>
       <p className="agents-note">Attribution labels report the evidence available to Flagger. “Certain” indicates direct provenance such as git-ai notes; suspected matches remain explicitly separate.</p>
     </main>
   )
@@ -220,6 +233,7 @@ function ActivitySkeleton() {
 }
 
 function EvidenceInspector({ commit, closing, onClose, onExitComplete }: { commit: Commit; closing: boolean; onClose: () => void; onExitComplete: () => void }) {
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null)
   const signals = [
     [commit.risk_no_review, 'No review recorded'],
     [commit.risk_ci_unclean, 'CI is not clean'],
@@ -228,12 +242,17 @@ function EvidenceInspector({ commit, closing, onClose, onExitComplete }: { commi
     [commit.risk_direct_to_main, 'Pushed directly to the default branch'],
   ].filter(([active]) => active)
 
+  useEffect(() => {
+    closeButtonRef.current?.focus()
+  }, [commit.id])
+
   return (
-    <div className={`evidence-motion${closing ? ' closing' : ''}`} onAnimationEnd={(event) => { if (closing && event.animationName === 'evidence-exit') onExitComplete() }}>
-    <aside className="evidence" aria-label="Commit evidence">
+    <div className={`evidence-motion${closing ? ' closing' : ''}`} onKeyDown={(event) => { if (event.key === 'Escape') onClose() }} onAnimationEnd={(event) => { if (closing && event.animationName === 'evidence-exit') onExitComplete() }}>
+    <div className="evidence" aria-hidden="true" />
+    <aside className="evidence-content" aria-label="Commit evidence">
       <header className="evidence-header">
         <h2>Evidence</h2>
-        <button className="icon-button" onClick={onClose} aria-label="Close evidence inspector">×</button>
+        <button className="icon-button" ref={closeButtonRef} onClick={onClose} aria-label="Close evidence inspector">×</button>
       </header>
       <section className="evidence-section evidence-summary">
         <dl>
@@ -288,6 +307,8 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
   const [cursorHistory, setCursorHistory] = useState<Array<string | null>>([])
   const [selected, setSelected] = useState<Commit | null>(null)
   const [inspectorClosing, setInspectorClosing] = useState(false)
+  const ledgerRef = useRef<HTMLElement | null>(null)
+  const inspectorTriggerRef = useRef<HTMLElement | null>(null)
   const inspectorCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const entranceCommitIds = useRef<Set<string>>(new Set())
   const entranceConsumed = useRef(false)
@@ -357,6 +378,13 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
     inspectorCloseTimer.current = null
     setInspectorClosing(false)
     setSelected(null)
+    const trigger = inspectorTriggerRef.current
+    inspectorTriggerRef.current = null
+    if (trigger?.isConnected) {
+      trigger.focus()
+    } else {
+      ledgerRef.current?.focus()
+    }
   }, [])
 
   function closeInspector() {
@@ -365,9 +393,10 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
     inspectorCloseTimer.current = setTimeout(finishInspectorClose, 200)
   }
 
-  function selectCommit(commit: Commit) {
+  function selectCommit(commit: Commit, trigger?: HTMLElement) {
     if (inspectorCloseTimer.current) clearTimeout(inspectorCloseTimer.current)
     inspectorCloseTimer.current = null
+    if (trigger) inspectorTriggerRef.current = trigger
     setInspectorClosing(false)
     setSelected(commit)
   }
@@ -518,7 +547,7 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
             <FilterSelect label="Risk signal" value={filters.risk} options={riskOptions} onChange={(value) => updateFilter('risk', value)} />
           </div>
 
-          <div className="ledger" role="table" aria-label="Commit activity">
+          <section className="ledger" ref={ledgerRef} tabIndex={-1} aria-label="Commit activity">
             <div className="ledger-toolbar">
               <span>{sortMode === 'priority' ? 'Riskiest changes first within each day.' : 'Newest changes first within each day.'}</span>
               <div className="ledger-sort">
@@ -527,23 +556,23 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
                 <button type="button" className={`queue-button${sortMode === 'recent' ? ' active' : ''}`} onClick={() => setSortMode('recent')}>Latest first</button>
               </div>
             </div>
-            <div className="ledger-head" role="row">
-              <span role="columnheader">Time</span><span role="columnheader">Change</span><span role="columnheader">Repository / branch</span><span role="columnheader">Author / agent</span><span role="columnheader">Risk</span><span role="columnheader">State</span>
+            <div className="ledger-head" aria-hidden="true">
+              <span>Time</span><span>Change</span><span>Repository / branch</span><span>Author / agent</span><span>Risk</span><span>State</span>
             </div>
             {activity.isPending && <ActivitySkeleton />}
             {activity.isError && (
-              <div className="state-card state-card-error">
+              <div className="state-card state-card-error" role="alert">
                 <div className="state-card-icon" aria-hidden="true">⚠</div>
                 <div className="state-card-copy">
                   <strong>Activity could not be loaded.</strong>
-                  <span className="error-detail">{activityErrorMessage}</span>
+                  <span className="error-detail mono">{activityErrorMessage}</span>
                   <span>Check the API connection and try again.</span>
                 </div>
                 <button onClick={() => activity.refetch()}>Retry</button>
               </div>
             )}
             {!activity.isPending && !activity.isError && groups.length === 0 && (
-              <div className="state-card state-card-empty">
+              <div className="state-card state-card-empty" role="status">
                 <div className="state-card-icon" aria-hidden="true">○</div>
                 <div className="state-card-copy">
                   <strong>{hasActiveFilters ? 'No activity matches these filters.' : 'No activity has arrived yet.'}</strong>
@@ -558,25 +587,25 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
                 {commits.map((commit) => {
                   const enterOnce = entranceActive && entranceCommitIds.current.has(commit.id)
                   return (
-                    <div className={`ledger-row${selected?.id === commit.id ? ' selected' : ''}${enterOnce ? ' enter-once' : ''}`} style={enterOnce ? { '--i': Math.min(globalRowIndexes.get(commit.id) ?? 0, 9) } as React.CSSProperties : undefined} role="row" tabIndex={0} key={commit.id} onClick={() => selectCommit(commit)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectCommit(commit) } }} aria-label={`Inspect ${firstLine(commit.message)}`}>
-                      <span className="row-time" role="cell">{formatTime(commit.pushed_at)}</span>
-                      <span className="row-change" role="cell">
+                    <button type="button" className={`ledger-row${selected?.id === commit.id ? ' selected' : ''}${enterOnce ? ' enter-once' : ''}`} style={enterOnce ? { '--i': Math.min(globalRowIndexes.get(commit.id) ?? 0, 9) } as React.CSSProperties : undefined} key={commit.id} onClick={(event) => selectCommit(commit, event.currentTarget)} aria-label={activityRowLabel(commit)}>
+                      <span className="row-time">{formatTime(commit.pushed_at)}</span>
+                      <span className="row-change">
                         <strong>{firstLine(commit.message)}</strong>
                         <span className="row-change-diff mono">
                           <span className="diff-add">+{commit.additions}<span className="sr-only"> lines added</span></span>
                           <span className="diff-del">−{commit.deletions}<span className="sr-only"> lines removed</span></span>
                         </span>
                       </span>
-                      <span className="row-repo" role="cell"><strong>{commit.full_name}</strong><small>{commit.branch}</small></span>
-                      <span className="row-author" role="cell"><strong>{commit.author_login}</strong><small>{commit.agent_type}</small></span>
-                      <span className={`risk risk-${(commit.risk_level ?? 'unknown').toLowerCase()}`} role="cell"><i aria-hidden="true" /><span>{riskLabel(commit.risk_level)}</span></span>
-                      <span className={`review-state ${reviewStateClass(commit)}`} role="cell"><i aria-hidden="true" />{reviewState(commit)}</span>
-                    </div>
+                      <span className="row-repo"><strong>{commit.full_name}</strong><small>{commit.branch}</small></span>
+                      <span className="row-author"><strong>{commit.author_login}</strong><small>{commit.agent_type}</small></span>
+                      <span className={`risk risk-${(commit.risk_level ?? 'unknown').toLowerCase()}`}><i aria-hidden="true" /><span>{riskLabel(commit.risk_level)}</span></span>
+                      <span className={`review-state ${reviewStateClass(commit)}`}><i aria-hidden="true" />{reviewState(commit)}</span>
+                    </button>
                   )
                 })}
               </section>
             ))}
-          </div>
+          </section>
           {(activity.data?.has_more || cursorHistory.length > 0) && <footer className="pagination"><span>Showing {activity.data?.data.length ?? 0} changes</span><div>{cursorHistory.length > 0 && <button className="secondary-button" onClick={() => { const previous = cursorHistory[cursorHistory.length - 1] ?? null; setCursor(previous); setCursorHistory((history) => history.slice(0, -1)) }}>Previous</button>}{activity.data?.has_more && <button onClick={() => { setCursorHistory((history) => [...history, cursor]); setCursor(activity.data?.next_cursor || null) }}>Next page</button>}</div></footer>}
           </div>
         </section>

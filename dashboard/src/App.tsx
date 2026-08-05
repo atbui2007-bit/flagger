@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import ActivityFeed, { initialFilters, type Filters } from './components/ActivityFeed'
-import Repositories from './components/Repositories'
-import PullRequestDetail from './components/PullRequestDetail'
-import Connect from './components/Connect'
 import Onboarding from './components/Onboarding'
-import Settings from './components/Settings'
 import Login from './components/Login'
 import { useSession, getPendingInstallation, clearPendingInstallation, getProviderToken } from './lib/auth'
 import { fetchJson } from './lib/api'
+
+const Repositories = lazy(() => import('./components/Repositories'))
+const PullRequestDetail = lazy(() => import('./components/PullRequestDetail'))
+const Connect = lazy(() => import('./components/Connect'))
+const Settings = lazy(() => import('./components/Settings'))
 
 interface Installation {
   github_installation_id: number
@@ -55,7 +56,11 @@ export default function App() {
   })
   const connected = (installations.data?.data.length ?? 0) > 0
 
-  useEffect(() => { document.documentElement.setAttribute('data-theme', theme); localStorage.setItem('theme', theme) }, [theme])
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#f3f4f8' : '#0f1017')
+    localStorage.setItem('theme', theme)
+  }, [theme])
   useEffect(() => { const update = () => setRoute(parseRoute()); addEventListener('hashchange', update); return () => removeEventListener('hashchange', update) }, [])
   useEffect(() => { const label = route.name === 'pr' ? `Pull request #${route.number}` : route.name[0].toUpperCase() + route.name.slice(1); document.title = `${label} — Flagger` }, [route])
   useEffect(() => {
@@ -130,9 +135,13 @@ export default function App() {
     <div className="content">
       <div className="route-view" key={routeKey}>
       {(route.name === 'activity' || route.name === 'agents') && <ActivityFeed view={route.name} filters={filters} setFilters={setFilters} onNavigateActivity={() => navigate('/')} />}
-      {route.name === 'repositories' && <Repositories onView={viewRepository} />}
-      {route.name === 'settings' && <Settings />}{route.name === 'connect' && <Connect />}
-      {route.name === 'pr' && <PullRequestDetail owner={route.owner} name={route.repository} number={route.number} />}
+      {route.name !== 'activity' && route.name !== 'agents' && (
+        <Suspense fallback={<Splash />}>
+          {route.name === 'repositories' && <Repositories onView={viewRepository} />}
+          {route.name === 'settings' && <Settings />}{route.name === 'connect' && <Connect />}
+          {route.name === 'pr' && <PullRequestDetail owner={route.owner} name={route.repository} number={route.number} />}
+        </Suspense>
+      )}
       </div>
     </div>
   </div>

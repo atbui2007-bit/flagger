@@ -22,9 +22,12 @@ function normalizeId(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]/g, '-')
 }
 
-function nextIndexByLetter(options: Option[], currentIndex: number, letter: string) {
-  const normalized = letter.toLocaleLowerCase()
-  for (let offset = 1; offset <= options.length; offset += 1) {
+function nextIndexByPrefix(options: Option[], currentIndex: number, prefix: string) {
+  const normalizedPrefix = prefix.toLocaleLowerCase()
+  const repeatedCharacter = normalizedPrefix.length > 1 && normalizedPrefix.split('').every((character) => character === normalizedPrefix[0])
+  const normalized = repeatedCharacter ? normalizedPrefix[0] : normalizedPrefix
+  const startOffset = normalizedPrefix.length === 1 || repeatedCharacter ? 1 : 0
+  for (let offset = startOffset; offset < options.length + startOffset; offset += 1) {
     const index = (currentIndex + offset + options.length) % options.length
     if (options[index]?.label.toLocaleLowerCase().startsWith(normalized)) return index
   }
@@ -189,7 +192,7 @@ function FilterSelect({ label, value, options, onChange }: FilterSelectProps) {
             if (typeaheadTimerRef.current) clearTimeout(typeaheadTimerRef.current)
             typeaheadTimerRef.current = setTimeout(() => { typeaheadRef.current = '' }, 600)
             event.preventDefault()
-            moveActive(nextIndexByLetter(options, activeIndex, typeaheadRef.current[0]))
+            moveActive(nextIndexByPrefix(options, activeIndex, typeaheadRef.current))
           }
         }}
         tabIndex={-1}

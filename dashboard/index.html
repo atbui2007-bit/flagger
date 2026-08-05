@@ -10,7 +10,9 @@
     <script>
       // Dark-first: CSS base tokens are dark; only "light" needs the attribute.
       (function () {
-        if (localStorage.getItem('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light')
+        var theme = localStorage.getItem('theme') === 'light' ? 'light' : 'dark'
+        document.querySelector('meta[name="theme-color"]').setAttribute('content', theme === 'light' ? '#f3f4f8' : '#0f1017')
+        if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light')
       })()
     </script>
   </head>
