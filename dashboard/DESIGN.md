@@ -7,6 +7,7 @@ colors:
   aurora-cyan: "#7fd8ea"
   canvas: "#0f1017"
   canvas-deep: "#0a0b10"
+  wallpaper-base: "#0c0d14"
   surface: "#16181f"
   surface-strong: "#1d2029"
   glass-fill: "#ffffff14"
@@ -17,7 +18,15 @@ colors:
   soft-ink: "#b8bfcc"
   muted-ink: "#8b93a3"
   divider: "#262a35"
-  code-surface: "#1c1f28"
+  divider-soft: "#1f232d"
+  surface-muted: "#1c1f28"
+  ledger-band-fill: "#0a0b1066"
+  accent-hover: "#b0bdff"
+  accent-press: "#748ade"
+  on-accent: "#0a0b10"
+  brand-aurora-blue: "{colors.aurora-blue}"
+  brand-aurora-violet: "{colors.aurora-violet}"
+  brand-aurora-cyan: "{colors.aurora-cyan}"
   review: "#f5a08c"
   review-surface: "#3a231e"
   caution: "#d9b85f"
@@ -26,6 +35,8 @@ colors:
   approved: "#83d6a5"
   approved-surface: "#1a3527"
   light-canvas: "#f3f4f8"
+  light-canvas-deep: "#e9ebf2"
+  light-wallpaper-base: "{colors.light-canvas-deep}"
   light-surface: "#ffffff"
   light-glass-fill: "#ffffffb8"
   light-glass-border: "#1e222b24"
@@ -103,7 +114,7 @@ components:
     padding: "24px 16px"
     width: "220px"
   summary-strip:
-    textColor: "{colors.muted-ink}"
+    textColor: "{colors.soft-ink}"
     typography: "{typography.label}"
   activity-row:
     backgroundColor: "{colors.row-fill}"
@@ -127,7 +138,7 @@ components:
     rounded: "{rounded.sm}"
     padding: "8px 16px"
   commit-sha:
-    backgroundColor: "{colors.code-surface}"
+    backgroundColor: "{colors.surface-muted}"
     textColor: "{colors.ink}"
     typography: "{typography.mono}"
     rounded: "{rounded.xs}"
@@ -178,6 +189,13 @@ gamification, alarmist presentation, and color-only risk signals.
 A near-black cool foundation, one aurora accent family for action and selection, and
 warm/cool state colors reserved exclusively for review status.
 
+**Naming.** Five tokens read in a different word order here than in the stylesheet —
+Soft Ink / Muted Ink are `--ink-soft` / `--ink-muted`, and the Review / Reviewed /
+Approved *surfaces* are `--review-bg` / `--reviewed-bg` / `--approved-bg`. That is
+deliberate: this document names by design role, the stylesheet groups by property so
+the ink and background families sort together. Same values, same count, no drift —
+do not "correct" either side into the other.
+
 ### Primary
 - **Aurora Blue** (`#8da2ff`): The action color. Primary buttons, current selection,
   focus rings, active filters, links. Used on ≤10% of any screen; its scarcity keeps
@@ -199,8 +217,9 @@ warm/cool state colors reserved exclusively for review status.
 - **Approved** (`#83d6a5` on `#1a3527`): Approved.
 
 ### Neutral
-- **Canvas** (`#0f1017`) and **Canvas Deep** (`#0a0b10`): The workspace. Canvas Deep
-  sits behind the wallpaper fields at the page root.
+- **Canvas** (`#0f1017`), **Canvas Deep** (`#0a0b10`), and **Wallpaper Base**
+  (`#0c0d14`): The workspace. Wallpaper Base is the distinct near-black under the
+  aurora fields; in light theme it resolves to Light Canvas Deep (`#e9ebf2`).
 - **Glass Fill** (`#ffffff14`, white at 8%) + **Glass Border** (`#ffffff24`, white at
   14%): the two ingredients of a glass panel, paired with a shell-level
   `backdrop-filter` (see the Single Blur Rule).
@@ -283,17 +302,28 @@ There is no display step — no surface in the product carries a hero heading.
 **The Evidence Type Rule.** Monospace for SHAs, branches, filenames, and code only.
 Never as general atmosphere.
 
-**The Compressed Ramp Rule.** Adjacent steps differ by 1–2px at the dense end. Never
-add a step between two that exist; reuse the nearer one. Three one-off sizes still sit
-off the ramp — 12.5px (`.row-repo strong`/`.row-author strong`), 14.08px
-(`.row-change strong`), 15px (`.strip-stat strong`) — two of them inside a single
-14–15px band. They are drift, not steps; snap them to 12, 14, and 14px when those
-components are next touched.
+**Inline Link Rule.** Inline text links carry an underline at 3px offset; navigation
+and button-like anchors do not, because color alone is not a sufficient affordance
+(WCAG 1.4.1).
 
-**The Legible Glass Rule.** Text on glass must be Ink or Soft Ink and must pass 4.5:1
-against the *darkest plausible* content scrolling beneath the panel. Dense text gets
-Row Fill under it; if a text role still fails, the panel gains an opaque scrim — the
-text never gets lighter.
+**The Compressed Ramp Rule.** Adjacent steps differ by 1–2px at the dense end. Never
+add a step between two that exist; reuse the nearer one. The ramp is currently clean:
+every `font-size` in the stylesheet resolves to one of the seven steps, and the three
+one-off sizes that used to sit off it — 12.5px on the repo/author names, 14.08px on
+the commit message, and a stale 15px note on the summary figure — were snapped to 12,
+14, and 14px. A value that is not on the ramp is drift, not a step.
+
+**The Weight Rule.** Three weights only: 400, 600, 700. Nothing between them. The
+in-between values that used to appear (620, 650, 680, 500) read as deliberate on a
+variable system-ui face and collapse to the nearest of 400/700 on a static fallback,
+so they buy an effect that cannot be relied on. Where one of them was carrying real
+separation — the Evidence Inspector's 12px section headings — the job passes to Ink,
+section spacing, and position instead.
+
+**The Legible Glass Rule.** Text on bare glass must be Ink or Soft Ink and must pass
+4.5:1 against the *darkest plausible* content scrolling beneath the panel. Dense text
+gets Row Fill under it; if an Ink or Soft Ink role still fails, the panel gains an
+opaque scrim.
 
 ## 4. Elevation
 
@@ -368,13 +398,17 @@ notice.
   page only; the entrance is consumed after it plays).
 - **View transitions:** route content fades in over 180ms (keyed container; a fade,
   not a fake crossfade). Evidence Inspector enters at 240ms and exits at 160ms
-  `--ease-in`, retained in the tree until the exit completes. Never animate
-  workspace width/padding — that reflows the ledger.
+  `--ease-in`, retained in the tree until the exit completes — its fade and its
+  slide run on two different layers so the blurred plate between them never moves
+  (§6). Never animate workspace width/padding — that reflows the ledger.
 - **Exits are faster than entrances** (~75% of enter duration).
 
 ### Reduced Motion
 `prefers-reduced-motion` collapses every transition/animation to near-instant and
-freezes the wallpaper canvas. This is non-negotiable and already token-driven.
+freezes the wallpaper canvas. This is non-negotiable and already token-driven. A
+frozen canvas also drops its `will-change` promotion: holding a full-viewport layer
+on the compositor for an animation that will never run is a cost paid by exactly the
+users who asked for less.
 
 ## 6. Components
 
@@ -392,6 +426,10 @@ is tight groups, generous section breaks — never four equal bands.
   small solid aurora dots (blue centered, violet upper-left, cyan lower-right, at
   70–85% opacity). The wordmark stays solid Ink — no gradient text, no glow, no
   animation.
+- **The dots use the Brand Aurora tokens, never Accent.** They carry the same values
+  as Aurora Blue/Violet/Cyan but are pinned theme-independently, because Accent is
+  theme-adaptive — it shifts to `#4f66d8` in light — and a brand mark that changes
+  colour with the theme is not a brand mark. Identical values today, different jobs.
 - **Nav:** Soft Ink links; active view in Aurora Blue on a 12% accent tint.
 - **Behavior:** Sticky; content scrolling beneath it is what makes it read as glass.
 
@@ -425,9 +463,17 @@ is tight groups, generous section breaks — never four equal bands.
   content carries the weight, not the size.
 
 ### Ledger Shell + Activity Rows
-- **Shell:** One rounded (20px) glass panel per table — Glass Fill + Glass Border +
+- **Shell:** One rounded (20px) glass panel per ledger — Glass Fill + Glass Border +
   glass-ambient shadow, `overflow: hidden`, a single 12px blur. The shell owns the
   glass; everything inside is tint.
+- **The columns are visual, not semantic.** Rows are native `<button>` elements and
+  the column head is `aria-hidden` chrome; there is no ARIA table, grid, or cell
+  anywhere. A row's accessible name composes the six columns into one spoken
+  sentence — message, repository, branch, author, agent, risk, state, time — so the
+  evidence survives without per-cell association, and the row keeps a button's own
+  activation semantics instead of fighting them. Do not reintroduce `role="table"`:
+  the day grouping puts a `<section>` between shell and rows, which severs table
+  ownership and was the defect this replaced.
 - **Toolbar:** first band inside the shell (48px): a short, accurate explainer of the
   current ordering on the left, the sort controls (Review queue / Latest first) on
   the right. The copy is **state-driven** — it describes the active sort ("Riskiest
@@ -474,9 +520,20 @@ is tight groups, generous section breaks — never four equal bands.
 - **Content:** Inner sections sit on Row Fill with a 14px radius — tint only, never a
   second blur (the Single Blur Rule). The glass is the panel shell, padding, and
   header.
-- **Motion:** enters at 240ms (fade + 18px slide); exits at 160ms `--ease-in`
-  (fade + 12px slide), retained in the tree until the exit finishes. The workspace
-  padding is never animated.
+- **Motion:** enters at 240ms `--ease-out`, exits at 160ms `--ease-in`, retained in
+  the tree until the exit finishes. The workspace padding is never animated.
+- **Three layers, and which one moves matters.** The positioned wrapper only clips —
+  it never fades and never transforms. The backdrop-filtered glass plate is an empty
+  `aria-hidden` sibling that fades on its own. The content layer beside it carries
+  the 18px enter / 12px exit slide and fades with the plate. Splitting it this way
+  lets the panel keep its designed slide without violating §4's ban on transforming a
+  blurred shell. The `<aside>` and its label live on the content layer, not the glass
+  — the plate is decoration and must stay out of the accessibility tree.
+- **Never fade the wrapper.** `opacity` below 1 makes an element a Backdrop Root, so
+  a fading ancestor leaves the plate's `backdrop-filter` sampling nothing for the
+  whole entrance and the blur snaps in at the end. An element's *own* opacity is
+  safe — it composites the already-blurred result rather than changing what gets
+  sampled. This is why the fade sits on the plate and not above it.
 
 ### Buttons
 - **Primary:** Aurora Blue fill, Canvas Deep text (≥7:1), 10px radius, 8px 16px
@@ -484,6 +541,9 @@ is tight groups, generous section breaks — never four equal bands.
   outline, 2px offset.
 - **Ghost:** Transparent fill, Soft Ink text, Glass Border outline; hover raises fill
   to Glass Fill.
+- **Touch targets:** under `pointer: coarse`, every interactive control takes a 44px
+  minimum. This is a house standard above WCAG 2.2's 24px floor, not a conformance
+  fix — the ledger is scanned one-handed on a phone as often as at a desk.
 
 ### Inputs / Selects
 - **Style:** Opaque Code Surface fill, 10px radius, no border at rest; 1px Divider on
@@ -511,8 +571,13 @@ is tight groups, generous section breaks — never four equal bands.
   premium moment a user sees; same recipe as every other panel, nothing bespoke.
 
 ### Inline Code / SHAs
-- **Style:** Code Surface capsule, 5px radius, 13px mono, 2px 6px padding,
+- **Style:** Surface Muted capsule, 5px radius, 13px mono, 2px 6px padding,
   tabular numerals.
+- **Surface Muted is not a code token.** It is the general opaque muted plane —
+  search field, state-card icons, icon-button hover, state and neutral pills, the
+  agent avatar tile, the secondary button. Code capsules are one of its ten-odd
+  users, not its definition. It was called Code Surface once; the name was a
+  misnomer and the token, not the usage, was wrong.
 
 ## 7. Do's and Don'ts
 

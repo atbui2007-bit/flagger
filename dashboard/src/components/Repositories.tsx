@@ -22,17 +22,17 @@ export default function Repositories({ onView }: { onView: (repository: string) 
   const failed = repos.isError || summaries.some((query) => query.isError)
   return <main className="agents-workspace">
     <div className="agents-heading"><div><h1>Repositories</h1><p>Connected repositories and the AI-authored activity within them.</p></div></div>
-    <div className="repositories-ledger" role="table" aria-label="Connected repositories">
-      <div className="repositories-head" role="row"><span role="columnheader">Repository</span><span role="columnheader">Commits tracked</span><span role="columnheader">AI-authored share</span><span role="columnheader">Needs review</span><span role="columnheader" className="sr-only">Action</span></div>
+    <section className="repositories-ledger" aria-label="Connected repositories">
+      <div className="repositories-head" aria-hidden="true"><span>Repository</span><span>Commits tracked</span><span>AI-authored share</span><span>Needs review</span></div>
       {repos.isPending && <div className="ledger-skeleton"><span /><span /><span /></div>}
-      {failed && <div className="state-message"><strong>Repositories could not be loaded.</strong><span>Check that the API is running, then try again.</span><button onClick={retry}>Retry</button></div>}
-      {!repos.isPending && !failed && repositories.length === 0 && <div className="state-message"><strong>No repositories connected yet</strong><span>Install the Flagger GitHub App to start the audit trail, no CLI, no config.</span><a className="primary-button" href="#/onboarding">Connect GitHub</a></div>}
-      {!failed && repositories.map((repository, index) => { const summary = summaries[index].data; return <button className="repository-row" role="row" key={repository.full_name} onClick={() => onView(repository.full_name)} aria-label={`View ${repository.full_name} activity`}>
-        <strong className="mono" role="cell">{repository.full_name}</strong><span role="cell">{summary?.total_commits ?? '—'}</span>
-        <span className="agent-share" role="cell"><span><i style={{ width: `${summary?.ai_share_percent ?? 0}%` }} /></span><small>{summary?.ai_share_percent ?? 0}%</small></span>
-        {summary ? <span className={`review-state ${summary.review_needed > 0 ? 'state-needs-review' : 'state-approved'}`} role="cell"><i aria-hidden="true" />{summary.review_needed ? `${summary.review_needed} need review` : 'Clear'}</span> : <span className="review-state" role="cell">—</span>}
-        <span className="row-action" role="cell">View activity <span aria-hidden="true">→</span></span>
+      {failed && <div className="state-message" role="alert"><strong>Repositories could not be loaded.</strong><span>Check that the API is running, then try again.</span><button onClick={retry}>Retry</button></div>}
+      {!repos.isPending && !failed && repositories.length === 0 && <div className="state-message" role="status"><strong>No repositories connected yet</strong><span>Install the Flagger GitHub App to start the audit trail, no CLI, no config.</span><a className="primary-button" href="#/onboarding">Connect GitHub</a></div>}
+      {!failed && repositories.map((repository, index) => { const summary = summaries[index].data; return <button type="button" className="repository-row" key={repository.full_name} onClick={() => onView(repository.full_name)} aria-label={`View ${repository.full_name} activity`}>
+        <strong className="mono">{repository.full_name}</strong><span>{summary?.total_commits ?? '—'}</span>
+        <span className="agent-share"><span><i style={{ width: `${summary?.ai_share_percent ?? 0}%` }} /></span><small>{summary?.ai_share_percent ?? 0}%</small></span>
+        {summary ? <span className={`review-state ${summary.review_needed > 0 ? 'state-needs-review' : 'state-approved'}`}><i aria-hidden="true" />{summary.review_needed ? `${summary.review_needed} need review` : 'Clear'}</span> : <span className="review-state">—</span>}
+        <span className="row-action">View activity <span aria-hidden="true">→</span></span>
       </button> })}
-    </div>
+    </section>
   </main>
 }
