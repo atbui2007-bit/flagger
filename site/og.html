@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1200, initial-scale=1.0" />
+<title>Flagger Open Graph Image</title>
+<style>
+  @font-face {
+    font-family: "Inter";
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url("./fonts/inter-latin-var.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: "Playfair Display";
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("./fonts/playfair-display-400-latin.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  :root {
+    --canvas: #0f1017;
+    --canvas-deep: #0a0b10;
+    --ink: #edeff5;
+    --ink-soft: #b8bfcc;
+    --accent: #8da2ff;
+    --aurora-violet: #b892ff;
+    --aurora-cyan: #7fd8ea;
+    --chrome-glass-fill: rgba(10, 11, 16, 0.44);
+    --glass-border: rgba(255, 255, 255, 0.14);
+    --glass-blur: blur(12px) saturate(1.35);
+    --shadow-glass: inset 0 1px 0 rgba(255,255,255,.10), inset 1px 0 0 rgba(255,255,255,.035), 0 18px 48px rgba(0,0,0,.32), 0 4px 14px rgba(0,0,0,.22);
+    --font-inter: "Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", sans-serif;
+    --font-display: "Playfair Display", Georgia, serif;
+    --material-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128' viewBox='0 0 128 128'%3E%3Cfilter id='grain'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.72' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='128' height='128' filter='url(%23grain)' opacity='.03'/%3E%3C/svg%3E");
+  }
+  * { box-sizing: border-box; }
+  html,
+  body {
+    width: 1200px;
+    height: 630px;
+    margin: 0;
+    overflow: hidden;
+    color: var(--ink-soft);
+    background-color: var(--canvas);
+    font-family: var(--font-inter);
+  }
+  body {
+    position: relative;
+    display: grid;
+    place-items: center;
+    background-image:
+      var(--material-grain),
+      radial-gradient(70% 70% at 8% 8%, rgba(141,162,255,.34), transparent 58%),
+      radial-gradient(68% 78% at 98% 36%, rgba(184,146,255,.34), transparent 56%),
+      radial-gradient(72% 72% at 55% 116%, rgba(127,216,234,.28), transparent 58%);
+    background-repeat: repeat, no-repeat, no-repeat, no-repeat;
+    background-size: 128px 128px, auto, auto, auto;
+  }
+  .card {
+    width: 900px;
+    padding: 56px;
+    border: 1px solid var(--glass-border);
+    border-radius: 30px;
+    background: var(--chrome-glass-fill);
+    box-shadow: var(--shadow-glass);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 44px;
+    color: var(--ink);
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.56px;
+    line-height: 1.2;
+  }
+  .brand-mark {
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--aurora-violet) 100%);
+  }
+  .brand-mark svg {
+    width: 28px;
+    height: 28px;
+  }
+  h1 {
+    max-width: 820px;
+    margin: 0 0 22px;
+    color: var(--ink);
+    font-family: var(--font-display);
+    font-size: 76px;
+    font-weight: 400;
+    line-height: 0.98;
+    letter-spacing: normal;
+    text-wrap: balance;
+  }
+  .nowrap {
+    white-space: nowrap;
+  }
+  p {
+    max-width: 700px;
+    margin: 0;
+    text-wrap: balance;
+    color: var(--ink-soft);
+    font-size: 26px;
+    font-weight: 400;
+    line-height: 1.35;
+    letter-spacing: -0.52px;
+  }
+</style>
+</head>
+<body>
+  <main class="card">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M11 21.4 20.1 12.3h-6.2V9.5h11v11h-2.8v-6.2L13 23.4Z" fill="#0a0b10"/>
+        </svg>
+      </span>
+      <span>Flagger</span>
+    </div>
+    <h1>The audit trail for <span class="nowrap">AI-written</span> code.</h1>
+    <p>Everything AI touched in your repos: ordered, traceable, in one place.</p>
+  </main>
+</body>
+</html>
