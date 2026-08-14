@@ -1,5 +1,5 @@
 ---
-name: Flagger Landing
+name: Coaudit Landing
 description: The Ledger at Dusk — an editorial serif landing page set in the dashboard's dark aurora glass.
 colors:
   canvas: "#0f1017"
@@ -128,7 +128,7 @@ components:
     textColor: "{colors.reviewed}"
 ---
 
-# Design System: Flagger Landing
+# Design System: Coaudit Landing
 
 ## 1. Overview
 
@@ -137,7 +137,7 @@ components:
 The landing page is the magazine cover for the dashboard behind it. It keeps the
 editorial architecture of a premium indie print spread — a confident retro serif
 for every display headline, a floating capsule nav, one atmospheric full-bleed
-hero, single-column reading sections — but sets all of it in the Flagger
+hero, single-column reading sections — but sets all of it in the Coaudit
 dashboard's own material: a near-black night canvas washed with three faint
 aurora fields (blue, violet, cyan), grain-debanded, with dark frosted-glass
 panels for the page chrome. The hero is a PS3-XMB-style dusk: a vast,

@@ -12,7 +12,7 @@ The secondary users are individual developers reviewing their own agent activity
 
 ## Product Purpose
 
-Flagger is an auditable ledger of AI-authored engineering activity. It helps a technical lead identify a potentially risky change within 30 seconds of loading the dashboard while preserving the repository, contributor, commit, and review context needed to investigate it.
+Coaudit is an auditable ledger of AI-authored engineering activity. It helps a technical lead identify a potentially risky change within 30 seconds of loading the dashboard while preserving the repository, contributor, commit, and review context needed to investigate it.
 
 Its secondary purpose is to make AI adoption visible through measures such as the percentage of commits attributed to agents and changes in that percentage over time. The product must not claim that it reduces escaped risk until sufficient baseline and outcome data exist, and it must communicate the limits of any unvalidated risk scoring.
 

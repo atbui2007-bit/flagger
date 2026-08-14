@@ -146,7 +146,7 @@ function AgentBreakdown({ onInspect }: { onInspect: (agent: string) => void }) {
           )
         })}
       </div>
-      <p className="agents-note">Attribution labels report the evidence available to Flagger. “Certain” indicates direct provenance such as git-ai notes; suspected matches remain explicitly separate.</p>
+      <p className="agents-note">Attribution labels report the evidence available to Coaudit. “Certain” indicates direct provenance such as git-ai notes; suspected matches remain explicitly separate.</p>
     </main>
   )
 }
@@ -435,7 +435,7 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
     if (reviewNeeded > 0) {
       leadSentence = `${greeting} ${reviewNeeded} ${reviewNeeded === 1 ? 'change needs' : 'changes need'} review in this view of ${repositories} ${repositories === 1 ? 'repository' : 'repositories'}.`
     } else if (reviewNeeded === 0) {
-      leadSentence = `${greeting} No current changes match Flagger's review-needed signals.`
+      leadSentence = `${greeting} No current changes match Coaudit's review-needed signals.`
     }
   }
 
@@ -449,7 +449,7 @@ function ActivityFeed({ view, filters, setFilters, onNavigateActivity }: {
             <div className="heading-side">
               <div className="summary-strip" aria-label="Activity summary">
                 {summary.isSuccess && summaryReviewNeeded === 0 ? (
-                  <span className="strip-stat all-clear" title="No current changes match Flagger's review-needed signals." aria-label="No current changes match Flagger's review-needed signals.">✓ All clear in this view</span>
+                  <span className="strip-stat all-clear" title="No current changes match Coaudit's review-needed signals." aria-label="No current changes match Coaudit's review-needed signals.">✓ All clear in this view</span>
                 ) : (
                   <span className={`strip-stat${summary.isSuccess && summaryReviewNeeded > 0 ? ' needs-review' : ''}`} data-populated={summaryReady && summaryReviewNeeded > 0}>
                     <strong>{summary.isPending ? <span className="stat-value-skeleton" aria-hidden="true" /> : summary.isError ? '—' : summaryReviewNeeded}</strong> need review
