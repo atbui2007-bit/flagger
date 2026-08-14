@@ -1,7 +1,7 @@
-# CLAUDE.md — Coaudit
+# CLAUDE.md — CoAudit
 
 This is the canonical context file for Claude Code in this repo. Read it before making
-changes. It describes what Coaudit is, what shipped in v1 (launched), and what v2 is
+changes. It describes what CoAudit is, what shipped in v1 (launched), and what v2 is
 about. It does not contain a task list — task tracking lives in Notion. Treat the
 conventions below as deliberate, not default scaffolding to "clean up."
 
@@ -9,22 +9,22 @@ conventions below as deliberate, not default scaffolding to "clean up."
 
 If the Codex Plugin is installed, implement code with codex and consult with Codex 5.6 Sol on the task at hand.
 
-## 1. What Coaudit Is
+## 1. What CoAudit Is
 
-Coaudit is an **audit-trail SaaS product** for engineering teams adopting AI coding
+CoAudit is an **audit-trail SaaS product** for engineering teams adopting AI coding
 agents. It answers one question for a tech lead: *"Everything AI touched in this repo —
 show it to me, ordered, traceable, in one place."* A secondary, not-yet-validated
 question is which of that activity actually needs attention before it ships (risk
 scoring, intentionally simple in v1).
 
-Coaudit is **not** a code quality reviewer — that's CodeRabbit's job. It tracks
+CoAudit is **not** a code quality reviewer — that's CodeRabbit's job. It tracks
 provenance and process (who/what wrote code, how much oversight it got), not whether the
 code is good.
 
 **Differentiator:** zero developer-side setup. Competing tools like `git-ai` require a
-CLI wrapper per developer. Coaudit connects via a GitHub App webhook once, at the repo
-level, and gets visibility immediately. Coaudit treats `git-ai` as complementary, not a
-competitor: if a repo has `git-ai` Git Notes at `refs/notes/ai`, Coaudit reads them as a
+CLI wrapper per developer. CoAudit connects via a GitHub App webhook once, at the repo
+level, and gets visibility immediately. CoAudit treats `git-ai` as complementary, not a
+competitor: if a repo has `git-ai` Git Notes at `refs/notes/ai`, CoAudit reads them as a
 higher-confidence attribution source; otherwise it falls back to its own heuristics.
 
 **Primary users:** tech leads / staff engineers wanting a cross-repo, cross-contributor
@@ -47,7 +47,7 @@ motion.
 
 ## 2. v1 — Launched
 
-Coaudit v1 is live: backend on Railway (`backend/Dockerfile` + `backend/railway.json`,
+CoAudit v1 is live: backend on Railway (`backend/Dockerfile` + `backend/railway.json`,
 runbook in `backend/DEPLOY.md`), dashboard on Vercel, real GitHub App created with its
 slug in `VITE_GITHUB_APP_INSTALL_URL`, Supabase GitHub OAuth enabled (auth verified
 end-to-end 2026-07-14), migrations 001–005 applied to production. An external user can
@@ -135,7 +135,7 @@ usage data exists.
 
 ### GitHub integration
 
-Coaudit is a GitHub App. `github_app.py`: app JWT (RS256) → installation access token
+CoAudit is a GitHub App. `github_app.py`: app JWT (RS256) → installation access token
 (`POST /app/installations/{id}/access_tokens`), cached per installation with a
 5-minute expiry buffer, per-installation `asyncio.Lock` against token stampedes.
 `github_client.py`: one shared `httpx.AsyncClient` with retry/backoff on 5xx/403/429
@@ -239,11 +239,11 @@ list not yet exercised.
 **Problem:** v1 entitlement is installation-level, and the only path into
 `installation_members` is `POST /installations/claim`, driven by the App install
 redirect — a flow only the installer (org owner / repo admin) ever goes through. A
-contributor/collaborator on the same repos has no way to see any Coaudit data, even
+contributor/collaborator on the same repos has no way to see any CoAudit data, even
 though GitHub itself grants them access to those repos.
 
 **Goal:** a signed-in user who is a collaborator on repos covered by an existing
-Coaudit installation gets appropriately scoped access without a new installation.
+CoAudit installation gets appropriately scoped access without a new installation.
 
 **Design (consulted with Codex, 2026-07-17 — verify the flagged items live before
 building):**

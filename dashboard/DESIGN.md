@@ -1,5 +1,5 @@
 ---
-name: Coaudit
+name: CoAudit
 description: A dark ledger of AI-authored engineering activity, living inside quiet frosted glass.
 colors:
   aurora-blue: "#8da2ff"
@@ -134,13 +134,13 @@ components:
     padding: "2px 6px"
 ---
 
-# Design System: Coaudit
+# Design System: CoAudit
 
 ## 1. Overview
 
 **Creative North Star: "The Ledger Under Glass" — glass-forward evolution**
 
-Coaudit is a dark, legible record of AI-authored engineering activity that **lives
+CoAudit is a dark, legible record of AI-authored engineering activity that **lives
 inside frosted glass**. Every container — the ledger shell, agent and repository
 tables, filters, state cards, the Evidence Inspector, the login panel — is a rounded
 glass panel floating over a composed wallpaper-grade gradient canvas: translucent,
@@ -388,7 +388,7 @@ is tight groups, generous section breaks — never four equal bands.
 ### Sidebar (glass)
 - **Style:** Full-height frosted panel — Glass Fill, shell-level blur, right edge is
   Glass Border (no drop shadow; it sits on the canvas).
-- **Brand lockup:** a 22px glass tile beside the "Coaudit" wordmark holding three
+- **Brand lockup:** a 22px glass tile beside the "CoAudit" wordmark holding three
   small solid aurora dots (blue centered, violet upper-left, cyan lower-right, at
   70–85% opacity). The wordmark stays solid Ink — no gradient text, no glow, no
   animation.
@@ -407,7 +407,7 @@ is tight groups, generous section breaks — never four equal bands.
 - **All-clear state:** when the summary loads successfully and review-needed is 0,
   the "0 need review" stat becomes a checked **"All clear in this view"** state
   (Approved color + check, text always present), with secondary copy "No current
-  changes match Coaudit's review-needed signals." The ledger stays visible beneath —
+  changes match CoAudit's review-needed signals." The ledger stays visible beneath —
   all-clear describes this view's signals, never the safety of the commits.
 - **State:** Fetch error renders `—` in Muted Ink; loading renders the skeleton.
 
@@ -416,7 +416,7 @@ is tight groups, generous section breaks — never four equal bands.
   by the time-aware greeting (computed once per mount, no live clock):
   - review-needed > 0: "{greeting} {n} change(s) need review in this view of {r}
     repository/ies."
-  - zero: "{greeting} No current changes match Coaudit's review-needed signals."
+  - zero: "{greeting} No current changes match CoAudit's review-needed signals."
   - loading: "{greeting} Loading review summary…"
   - error: "{greeting} Review summary unavailable. AI-authored changes across
     connected repositories."

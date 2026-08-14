@@ -15,8 +15,8 @@ interface Installation {
   repo_count: number
 }
 const steps = [
-  ['Install the GitHub App and choose repositories', 'Select only the organizations and repositories you want Coaudit to observe.'],
-  ['Coaudit receives webhooks and attributes each commit', 'Activity begins flowing without wrappers or developer configuration.'],
+  ['Install the GitHub App and choose repositories', 'Select only the organizations and repositories you want CoAudit to observe.'],
+  ['CoAudit receives webhooks and attributes each commit', 'Activity begins flowing without wrappers or developer configuration.'],
   ['Review the ledger with honest confidence labels', 'Direct provenance and suspected attribution remain explicitly separate.'],
 ]
 const defaultInstallUrl = 'https://github.com/apps'
@@ -63,7 +63,7 @@ export default function Connect() {
   }
 
   return <main className="page-narrow connect-page">
-    <header className="page-heading"><h1>Connect GitHub</h1><p>Install the Coaudit GitHub App once per organization. Activity starts flowing immediately, no CLI wrappers, no per-developer setup.</p></header>
+    <header className="page-heading"><h1>Connect GitHub</h1><p>Install the CoAudit GitHub App once per organization. Activity starts flowing immediately, no CLI wrappers, no per-developer setup.</p></header>
     {claim.isPending && <p className="quiet-copy" role="status">Linking your installation…</p>}
     {claim.isSuccess && <p className="quiet-copy" role="status">Connected <strong>{claim.data.account_login}</strong>. Activity will appear as webhooks arrive.</p>}
     {claim.isError && <div className="connect-claim-error" role="alert">

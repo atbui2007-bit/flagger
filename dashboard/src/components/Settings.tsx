@@ -53,7 +53,7 @@ export default function Settings() {
     </div>}
   </section>
   <section className="settings-section"><h2>Attribution</h2>
-    <p className="quiet-copy">Coaudit reads git-ai notes when a repo has them, upgrading attribution from suspected heuristics to certain, line-level provenance. git-ai is free, open source, and installs in one line per developer — no account required.</p>
+    <p className="quiet-copy">CoAudit reads git-ai notes when a repo has them, upgrading attribution from suspected heuristics to certain, line-level provenance. git-ai is free, open source, and installs in one line per developer — no account required.</p>
     <div className="settings-actions"><a href={GIT_AI_URL} target="_blank" rel="noreferrer">Get git-ai on GitHub <span aria-hidden="true">↗</span></a></div>
   </section>
   <section className="settings-section"><h2>Workspace</h2><dl><div><dt>API endpoint</dt><dd className="mono">{API_BASE}</dd></div><div><dt>Theme</dt><dd>Set with the sidebar toggle</dd></div></dl></section>

@@ -35,7 +35,7 @@ export default function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme)
   useEffect(() => { document.documentElement.setAttribute('data-theme', theme); localStorage.setItem('theme', theme) }, [theme])
   useEffect(() => { const update = () => setRoute(parseRoute()); addEventListener('hashchange', update); return () => removeEventListener('hashchange', update) }, [])
-  useEffect(() => { const label = route.name === 'pr' ? `Pull request #${route.number}` : route.name[0].toUpperCase() + route.name.slice(1); document.title = `${label} — Coaudit` }, [route])
+  useEffect(() => { const label = route.name === 'pr' ? `Pull request #${route.number}` : route.name[0].toUpperCase() + route.name.slice(1); document.title = `${label} — CoAudit` }, [route])
   useEffect(() => {
     // A GitHub App install redirect stashed a pending installation id; route it
     // to Connect, which performs the claim. While signed-out the id just waits
@@ -74,7 +74,7 @@ export default function App() {
   if (route.name === 'login') return <div className="route-view" key={routeKey}><Login onContinue={() => navigate('/')} /></div>
   return <div className="app-shell">
     <aside className="sidebar">
-      <a className="brand" href="#/" aria-label="Coaudit activity"><span className="brand-mark" aria-hidden="true"><i className="brand-dot brand-dot-blue" /><i className="brand-dot brand-dot-violet" /><i className="brand-dot brand-dot-cyan" /></span><span>Coaudit</span></a>
+      <a className="brand" href="#/" aria-label="CoAudit activity"><span className="brand-mark" aria-hidden="true"><i className="brand-dot brand-dot-blue" /><i className="brand-dot brand-dot-violet" /><i className="brand-dot brand-dot-cyan" /></span><span>CoAudit</span></a>
       <label className="global-search"><span aria-hidden="true">⌕</span><input type="search" value={filters.search} onChange={(event) => updateSearch(event.target.value)} placeholder="Search activity" aria-label="Search activity" /></label>
       <nav aria-label="Primary navigation">
         {([['activity','Activity'],['repositories','Repositories'],['agents','Agents'],['settings','Settings']] as const).map(([name, label]) => <a key={name} className={route.name === name ? 'active' : ''} href={`#/${name}`}>{label}</a>)}
