@@ -12,6 +12,14 @@ from log_config import get_logger
 logger = get_logger(__name__)
 router = APIRouter()
 
+# Installation-wide (admin) grants outlive repo-scoped ones: they come from the
+# claim flow, which only the installer ever runs, so a lapsed grant can't be
+# re-earned by a background sync alone. 30d keeps the installer signed in across
+# normal usage while still expiring someone removed from the org.
+# ponytail: two TTLs, no config surface. Make it an env var when someone asks.
+INSTALL_GRANT_TTL = "30 days"
+REPO_GRANT_TTL = "24 hours"
+
 
 class ClaimRequest(BaseModel):
     # GitHub installation id from the App Setup URL redirect (?installation_id=...)
@@ -135,21 +143,21 @@ async def _trusted_github_id(session, supabase_user_id):
 async def _upsert_repo_member_grants(session, grants):
     if not grants:
         return
-    upsert_repo_member = text("""
+    upsert_repo_member = text(f"""
         INSERT INTO repo_members (
             repo_id, supabase_user_id, github_login, role,
             github_permission, access_checked_at, access_expires_at
         )
         VALUES (
             :repo_id, :supabase_user_id, :github_login, 'member',
-            :github_permission, NOW(), NOW() + interval '24 hours'
+            :github_permission, NOW(), NOW() + interval '{REPO_GRANT_TTL}'
         )
         ON CONFLICT (repo_id, supabase_user_id) DO UPDATE SET
             github_login = EXCLUDED.github_login,
             role = 'member',
             github_permission = EXCLUDED.github_permission,
             access_checked_at = NOW(),
-            access_expires_at = NOW() + interval '24 hours',
+            access_expires_at = NOW() + interval '{REPO_GRANT_TTL}',
             removed_at = NULL
     """)
     for grant in grants:
@@ -252,16 +260,16 @@ async def claim(
         "account_type": account["type"],
     })
 
-    await session.execute(text("""
+    await session.execute(text(f"""
         INSERT INTO installation_members (
             installation_id, supabase_user_id, github_login, role, access_expires_at
         )
         VALUES ((SELECT id FROM installations WHERE github_installation_id = :gid),
-                :supabase_user_id, :github_login, 'admin', NOW() + interval '24 hours')
+                :supabase_user_id, :github_login, 'admin', NOW() + interval '{INSTALL_GRANT_TTL}')
         ON CONFLICT (installation_id, supabase_user_id) DO UPDATE SET
             github_login = EXCLUDED.github_login,
             role = 'admin',
-            access_expires_at = NOW() + interval '24 hours',
+            access_expires_at = NOW() + interval '{INSTALL_GRANT_TTL}',
             removed_at = NULL
     """), {
         "gid": installation["id"],
@@ -324,9 +332,9 @@ async def sync_access(
         # a demoted-but-still-collaborator admin keeps the grant until they drop off
         # the list. Upgrade to re-run _claim_access_level here if downgrade detection
         # matters -- deferred to avoid ~2 paginated GitHub calls per install per sync.
-        await session.execute(text("""
+        await session.execute(text(f"""
             UPDATE installation_members
-            SET access_expires_at = NOW() + interval '24 hours'
+            SET access_expires_at = NOW() + interval '{INSTALL_GRANT_TTL}'
             WHERE supabase_user_id = :supabase_user_id
               AND installation_id = :installation_id
               AND removed_at IS NULL

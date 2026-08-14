@@ -5,7 +5,13 @@ import { supabase } from './supabase'
 const PROVIDER_TOKEN_KEY = 'flagger:provider_token'
 const PENDING_INSTALL_KEY = 'flagger:pending_installation'
 
-export const getProviderToken = () => sessionStorage.getItem(PROVIDER_TOKEN_KEY)
+// The provider token lives in localStorage, not sessionStorage: Supabase only
+// hands it over in the instant after the OAuth redirect, and access grants are
+// renewed by /installations/sync-access, which needs it. Per-tab storage meant
+// every reopened tab silently skipped the sync until grants expired and the user
+// had to reconnect GitHub by hand. Cleared on sign-out and when GitHub rejects it.
+export const getProviderToken = () => localStorage.getItem(PROVIDER_TOKEN_KEY)
+export const clearProviderToken = () => localStorage.removeItem(PROVIDER_TOKEN_KEY)
 export const getPendingInstallation = () => sessionStorage.getItem(PENDING_INSTALL_KEY)
 export const setPendingInstallation = (id: string) => sessionStorage.setItem(PENDING_INSTALL_KEY, id)
 export const clearPendingInstallation = () => sessionStorage.removeItem(PENDING_INSTALL_KEY)
@@ -29,8 +35,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // provider_token (the GitHub OAuth token) only exists in the session
       // immediately after the OAuth redirect; supabase-js does not persist it.
       // Stash it for the installation claim flow.
-      if (session?.provider_token) sessionStorage.setItem(PROVIDER_TOKEN_KEY, session.provider_token)
-      if (event === 'SIGNED_OUT') sessionStorage.removeItem(PROVIDER_TOKEN_KEY)
+      if (session?.provider_token) localStorage.setItem(PROVIDER_TOKEN_KEY, session.provider_token)
+      if (event === 'SIGNED_OUT') localStorage.removeItem(PROVIDER_TOKEN_KEY)
       setState(session ? { status: 'signed-in', session } : { status: 'signed-out' })
     })
     return () => sub.subscription.unsubscribe()

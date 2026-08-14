@@ -6,8 +6,8 @@ import PullRequestDetail from './components/PullRequestDetail'
 import Connect from './components/Connect'
 import Settings from './components/Settings'
 import Login from './components/Login'
-import { useSession, getPendingInstallation, clearPendingInstallation, getProviderToken } from './lib/auth'
-import { fetchJson } from './lib/api'
+import { useSession, getPendingInstallation, clearPendingInstallation, getProviderToken, clearProviderToken } from './lib/auth'
+import { ApiError, fetchJson } from './lib/api'
 
 let accessSyncStarted = false
 
@@ -59,7 +59,12 @@ export default function App() {
       void queryClient.invalidateQueries({ queryKey: ['activity-facets'] })
       void queryClient.invalidateQueries({ queryKey: ['agent-breakdown'] })
       void queryClient.invalidateQueries({ queryKey: ['repository-summary'] })
-    }).catch(() => {})
+    }).catch((error) => {
+      // GitHub rejected the stored token (revoked, or the OAuth grant was
+      // removed). Drop it so Settings offers "Reconnect GitHub" instead of
+      // retrying a dead token on every boot. Transient failures keep it.
+      if (error instanceof ApiError && error.status === 403) clearProviderToken()
+    })
   }, [auth.status, queryClient])
   const updateSearch = (value: string) => { setFilters((current) => ({ ...current, search: value })); if (route.name !== 'activity') navigate('/') }
   const viewRepository = (repository: string) => { setFilters((current) => ({ ...current, repository })); navigate('/') }
